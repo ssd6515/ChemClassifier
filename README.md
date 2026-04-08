@@ -32,23 +32,16 @@ ChemClassifier/
 
 ## What Each Panel Represents
 
-- `Panel A`: Dragon descriptor subset from `bcf_data.csv`
-- `Panel B`: RDKit descriptor matrix from `rdkit_data.csv`
-- `Panel C`: ECFP (Morgan fingerprint) generated from SMILES in `bcf_data.csv`
-- `Panel D`: MACCS fingerprint generated from SMILES in `bcf_data.csv`
+- `Panel A`: Model Training for Dragon descriptor subset from `bcf_data.csv`
+- `Panel B`: Model Training for RDKit descriptor from `rdkit_data.csv`
+- `Panel C`: Model Training for ECFP (Morgan fingerprint) generated from SMILES in `bcf_data.csv`
+- `Panel D`: Model Training for MACCS fingerprint generated from SMILES in `bcf_data.csv`
 
 ## Setup
 
-### 1. Clone the repository
+### 1. Create the Conda environment
 
-```powershell
-git clone <your-repo-url>
-cd ChemClassifier
-```
-
-### 2. Create the Conda environment
-
-The project environment is stored in [Environment/environment.yml](/C:/Users/Shashwat/Documents/1PhDEnvironmentalHealthDataScience/ChemClassifier/Environment/environment.yml).
+The project environment is stored in [Environment/environment.yml](Environment/environment.yml).
 
 ```powershell
 conda env create -f .\Environment\environment.yml
