@@ -64,8 +64,8 @@ This environment includes the main dependencies used by the project, including:
 
 There are two main training inputs:
 
-- `bcf_data.csv`: used by Panels A, C, and D
-- `rdkit_data.csv`: used by Panel B
+- `bcf_data.csv`: Obtained from Grisoni, F., Consonni, V., Vighi, M., Villa, S., Todeschini, R., 2016. Investigating the mechanisms of bioconcentration through QSAR classification trees. Environ Int 88, 198-205. https://doi.org/10.1016/j.envint.2015.12.024.
+- `rdkit_data.csv`: Refer to [Generate_RDKit_Features.ipynb](RDKit Data Exraction/Generate_RDKit_Features.ipynb) for details on how this dataset was generated.
 
 ### How `rdkit_data.csv` is generated
 
