@@ -116,7 +116,7 @@ The main evaluation outputs reported by the scripts are:
 - weighted F1
 - precision
 - recall
-- precision, recall, and F1 across 3 classes
+- precision, recall, and F1 across 3 bioconcentration mechanism classes
 
 ## Output Files
 
