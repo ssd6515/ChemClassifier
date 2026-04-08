@@ -65,113 +65,38 @@ This environment includes the main dependencies used by the project, including:
 There are two main training inputs:
 
 - `bcf_data.csv`: Obtained from Grisoni, F., Consonni, V., Vighi, M., Villa, S., Todeschini, R., 2016. Investigating the mechanisms of bioconcentration through QSAR classification trees. Environ Int 88, 198-205. https://doi.org/10.1016/j.envint.2015.12.024.
-- `rdkit_data.csv`: Refer to [Generate_RDKit_Features.ipynb](RDKit Data Exraction/Generate_RDKit_Features.ipynb) for details on how this dataset was generated.
+- `rdkit_data.csv`: Refer to [RDKit Data Exraction/Generate_RDKit_Features.ipynb](https://github.com/ssd6515/ChemClassifier/blob/04a5890030ec530ccc8bbb63a3fb868826b6cef9/RDKit%20Data%20Exraction/Generate_RDKit_Features.ipynb) for details on how this dataset was generated. This dataset is provided at [RDKit Data Extraction/rdkit_data.csv](https://github.com/ssd6515/ChemClassifier/blob/930873a20aa58e59a4fe97e2f4701d74c6e7fb5e/RDKit%20Data%20Exraction/rdkit_data.csv)
 
-### How `rdkit_data.csv` is generated
+## Model Training
 
-The notebook [RDKit Data Exraction/Generate_RDKit_Features.ipynb](/C:/Users/Shashwat/Documents/1PhDEnvironmentalHealthDataScience/ChemClassifier/RDKit%20Data%20Exraction/Generate_RDKit_Features.ipynb) starts from a source Excel file (`bcf_data.xlsx`), retrieves or standardizes SMILES, builds RDKit molecules, and exports `rdkit_data.csv`.
+### Panel A
 
-The repository already includes one generated file at [RDKit Data Exraction/rdkit_data.csv](/C:/Users/Shashwat/Documents/1PhDEnvironmentalHealthDataScience/ChemClassifier/RDKit%20Data%20Exraction/rdkit_data.csv).
+- `gbrt_panela.py`: Gradient Boosting Decision Trees (GBDT) with Dragon descriptors
+- `lr_panela.py`: Logistic Regression with Dragon descriptors
+- `rf_panela.py`: Random Forest (RF) with Dragon descriptors
+- `svc_panela.py`: Support Vector Classifier (SVC) with Dragon descriptors
 
-### Expected columns
+### Panel B
 
-The training scripts expect the following:
+- `gbrt_panelb.py`: Gradient Boosting Decision Trees (GBDT) with RDKit descriptors
+- `lr_panelb.py`: Logistic Regression with RDKit descriptors
+- `rf_panelb.py`: Random Forest (RF) with RDKit descriptors
+- `svc_panelb.py`: Support Vector Classifier (SVC) with RDKit descriptors
 
-- `bcf_data.csv` must include `Class`
-- `bcf_data.csv` must also include the Dragon descriptor columns used in Panel A
-- `bcf_data.csv` must include `SMILES` for Panels C and D
-- `rdkit_data.csv` must include `CAS`, `QSAR_READY_SMILES`, `mol`, and `Class`
+### Panel C
 
-### Important file placement note
+- `gbrt_panelc.py`: Gradient Boosting Decision Trees (GBDT) with ECFP molecular fingerprint
+- `lr_panelc.py`: Logistic Regression with ECFP molecular fingerprint
+- `mlp_panelc.py`: Multi-layer Perceptron (MLP) with ECFP molecular fingerprint
+- `rf_panelc.py`: Random Forest Classifier with ECFP molecular fingerprint
+- `svc_panelc.py`: Support Vector Classifier (SVC) with ECFP molecular fingerprint
 
-The training scripts use relative paths such as `bcf_data.csv` and `rdkit_data.csv`, and they also import `utility.py` from the parent `Model Training` folder. Because of that, the easiest way to run the scripts is:
+### Panel D
 
-1. stay inside the `Model Training` directory
-2. set `PYTHONPATH` to that directory
-3. copy the required CSV file into the panel folder you want to run
-
-For example:
-
-- copy `bcf_data.csv` into `Model Training/Panel A`, `Model Training/Panel C`, or `Model Training/Panel D`
-- copy `rdkit_data.csv` into `Model Training/Panel B`
-
-## How To Run The Models
-
-### PowerShell setup for training
-
-From the repository root:
-
-```powershell
-cd ".\Model Training"
-$env:PYTHONPATH = (Get-Location).Path
-```
-
-That environment variable is needed because the panel scripts import `utility.py` with:
-
-```python
-from utility import Kfold
-```
-
-### Run a single model
-
-Example: Panel A Random Forest
-
-```powershell
-Copy-Item "..\bcf_data.csv" ".\Panel A\bcf_data.csv"
-python ".\Panel A\rf_panela.py"
-```
-
-Example: Panel B Random Forest
-
-```powershell
-Copy-Item "..\RDKit Data Exraction\rdkit_data.csv" ".\Panel B\rdkit_data.csv"
-python ".\Panel B\rf_panelb.py"
-```
-
-Example: Panel C MLP
-
-```powershell
-Copy-Item "..\bcf_data.csv" ".\Panel C\bcf_data.csv"
-python ".\Panel C\mlp_panelc.py"
-```
-
-Example: Panel D SVC
-
-```powershell
-Copy-Item "..\bcf_data.csv" ".\Panel D\bcf_data.csv"
-python ".\Panel D\svc_paneld.py"
-```
-
-### Available training scripts
-
-#### Panel A
-
-- `gbrt_panela.py`
-- `lr_panela.py`
-- `rf_panela.py`
-- `svc_panela.py`
-
-#### Panel B
-
-- `gbrt_panelb.py`
-- `lr_panelb.py`
-- `rf_panelb.py`
-- `svc_panelb.py`
-
-#### Panel C
-
-- `gbrt_panelc.py`
-- `lr_panelc.py`
-- `mlp_panelc.py`
-- `rf_panelc.py`
-- `svc_panelc.py`
-
-#### Panel D
-
-- `gbrt_paneld.py`
-- `lr_paneld.py`
-- `rf_paneld.py`
-- `svc_paneld.py`
+- `gbrt_paneld.py`: Gradient Boosting Decision Trees (GBDT) with MACCS molecular fingerprint
+- `lr_paneld.py`: Logistic Regression with MACCS molecular fingerprint
+- `rf_paneld.py`: Random Forest Classifier with MACCS molecular fingerprint
+- `svc_paneld.py`: Support Vector Machine with MACCS molecular fingerprint
 
 ## What The Training Scripts Do
 
@@ -189,14 +114,13 @@ The main evaluation outputs reported by the scripts are:
 
 - accuracy
 - weighted F1
-- class-wise precision
-- class-wise recall
-- class-wise F1
-- average precision, recall, and F1 across classes
+- precision
+- recall
+- precision, recall, and F1 across 3 classes
 
 ## Output Files
 
-Running a training script produces files in the same panel folder as the script.
+Running a training script produces following files.
 
 Typical outputs include:
 
@@ -217,12 +141,12 @@ Some Gradient Boosting scripts also save feature importance files, for example:
 
 ## Feature Importance Analysis
 
-The notebook [Feature Importance/FeatureImportance.ipynb](/C:/Users/Shashwat/Documents/1PhDEnvironmentalHealthDataScience/ChemClassifier/Feature%20Importance/FeatureImportance.ipynb) is used to inspect descriptor importance outputs generated by the model training runs.
+The notebook [Feature Importance/FeatureImportance.ipynb](https://github.com/ssd6515/ChemClassifier/blob/930873a20aa58e59a4fe97e2f4701d74c6e7fb5e/Feature%20Importance/FeatureImportance.ipynb) is used to inspect descriptor importance outputs generated by the model training runs.
 
 The repository already contains:
 
-- [Feature Importance/all_feature_importances_panela.pkl](/C:/Users/Shashwat/Documents/1PhDEnvironmentalHealthDataScience/ChemClassifier/Feature%20Importance/all_feature_importances_panela.pkl)
-- [Feature Importance/all_feature_importances_panelb.pkl](/C:/Users/Shashwat/Documents/1PhDEnvironmentalHealthDataScience/ChemClassifier/Feature%20Importance/all_feature_importances_panelb.pkl)
+- [Feature Importance/all_feature_importances_panela.pkl](https://github.com/ssd6515/ChemClassifier/blob/930873a20aa58e59a4fe97e2f4701d74c6e7fb5e/Feature%20Importance/all_feature_importances_panela.pkl)
+- [Feature Importance/all_feature_importances_panelb.pkl](https://github.com/ssd6515/ChemClassifier/blob/930873a20aa58e59a4fe97e2f4701d74c6e7fb5e/Feature%20Importance/all_feature_importances_panelb.pkl)
 
 ## Reproducing Results
 
@@ -230,28 +154,13 @@ If you want to reproduce a full set of results, a practical order is:
 
 1. create and activate the Conda environment
 2. prepare or obtain `bcf_data.csv`
-3. run [RDKit Data Exraction/Generate_RDKit_Features.ipynb](/C:/Users/Shashwat/Documents/1PhDEnvironmentalHealthDataScience/ChemClassifier/RDKit%20Data%20Exraction/Generate_RDKit_Features.ipynb) if you need to regenerate `rdkit_data.csv`
+3. run [RDKit Data Exraction/Generate_RDKit_Features.ipynb](https://github.com/ssd6515/ChemClassifier/blob/04a5890030ec530ccc8bbb63a3fb868826b6cef9/RDKit%20Data%20Exraction/Generate_RDKit_Features.ipynb) if you need to regenerate `rdkit_data.csv`
 4. copy the needed CSV into the panel folder you plan to train
-5. set `PYTHONPATH` to the `Model Training` folder
-6. run the desired panel scripts
-7. inspect the generated `.pkl` and `.pt` files
-8. optionally open the feature-importance notebook for interpretation
+5. run the desired panel scripts
+6. optionally open the feature-importance notebook for interpretation
 
 ## Notes And Caveats
 
 - `bcf_data.csv` is referenced by many scripts, but it is not currently included in this repository.
-- `rdkit_data.csv` is included under `RDKit Data Exraction`, but Panel B scripts expect it in their working folder unless you edit the script path.
-- The current scripts are written as standalone files and do not accept command-line arguments for input or output paths.
-- Several scripts save output files with names inherited from earlier experiments, so some filenames in Panels C and D still contain labels such as `t2panela` or `t2panelb`.
+- `rdkit_data.csv` is included under `RDKit Data Exraction`.
 - The scripts print progress and metrics to the console and store serialized results as pickle files.
-
-## Suggested Next Improvement
-
-If you plan to share this project more broadly, the biggest usability improvement would be to refactor the training scripts so they accept:
-
-- `--input`
-- `--output-dir`
-- `--panel`
-- `--model`
-
-That would remove the current need to copy CSV files into panel folders and manually set `PYTHONPATH`.
