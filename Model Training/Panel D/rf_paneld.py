@@ -315,7 +315,7 @@ for repeat in range(5):
     repeat_metrics_list.append(repeat_metrics)
 
 # Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_rf_t2panelb_repeat.pkl', 'wb') as f:
+with open('results_rf_paneld_repeat.pkl', 'wb') as f:
     pickle.dump({
         'all_fold_metrics': all_fold_metrics,
         'all_fold_predictions': all_fold_predictions,
@@ -373,7 +373,7 @@ all_metrics = {
     'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
 }
 
-with open('results_rf_t2panelb_final_metrics.pkl', 'wb') as f:
+with open('results_rf_paneld_final_metrics.pkl', 'wb') as f:
     pickle.dump(all_metrics, f)
 
 # ----------------------------------------
