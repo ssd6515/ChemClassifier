@@ -161,6 +161,6 @@ If you want to reproduce a full set of results, a practical order is:
 
 ## Notes And Caveats
 
-- `bcf_data.csv` is referenced by many scripts, but it is not currently included in this repository.
+- `bcf_data.csv` is referenced by many scripts, but it is not included in this repository.
 - `rdkit_data.csv` is included under `RDKit Data Exraction`.
 - The scripts print progress and metrics to the console and store serialized results as pickle files.
