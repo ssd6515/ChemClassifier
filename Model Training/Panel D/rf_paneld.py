@@ -1,4 +1,5 @@
 # Model Training for Panel D: Random Forest Classifier with MACCS molecular fingerprint
+
 import pandas as pd
 import numpy as np
 from utility import Kfold
@@ -14,12 +15,14 @@ import torch
 job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
 print(job_id)
 
+print("n_estimator = [50, 100, 200, 300, 400, 500, 600, 650, 700, 800, 900, 1000], max_depths = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30],rdkit+bcf,rf_t2_panelb_noSMOTE")
+ 
 # Measure start time
 start_time = time.time()
 print(start_time)
 
-# Load the csv file. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
-file_path = 'bcf_data.csv'
+# Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
+file_path = '/home/ssd6515/Fish/bcf_data.csv'
 data = pd.read_csv(file_path)
 
 # Convert SMILES column to NumPy array
@@ -98,7 +101,7 @@ for repeat in range(5):
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 6
+    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
     patience_counter = 0
     
 
@@ -315,7 +318,7 @@ for repeat in range(5):
     repeat_metrics_list.append(repeat_metrics)
 
 # Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_rf_paneld_repeat.pkl', 'wb') as f:
+with open('results_rf_t2panelb_repeat.pkl', 'wb') as f:
     pickle.dump({
         'all_fold_metrics': all_fold_metrics,
         'all_fold_predictions': all_fold_predictions,
@@ -373,7 +376,7 @@ all_metrics = {
     'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
 }
 
-with open('results_rf_paneld_final_metrics.pkl', 'wb') as f:
+with open('results_rf_t2panelb_final_metrics.pkl', 'wb') as f:
     pickle.dump(all_metrics, f)
 
 # ----------------------------------------
@@ -384,8 +387,8 @@ best_overall_model = repeat_best_models[best_repeat_index]
 best_repeat_hyper = repeat_best_hyperparams[best_repeat_index]
 print(f"Best Overall Model from repeat {best_repeat_index}: n_estimator = {best_repeat_hyper[0]}, max_depth = {best_repeat_hyper[1]}")
 # Save the best overall model as a .pt file using torch.save
-torch.save(best_overall_model, 'best_rf_model.pt')
-print("Best overall rf model saved as best_rf_model.pt")
+#torch.save(best_overall_model, 'best_rf_model.pt')
+#print("Best overall rf model saved as best_rf_model.pt")
 # ----------------------------------------
 
 end_time = time.time()

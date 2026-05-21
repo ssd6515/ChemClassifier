@@ -8,17 +8,19 @@ import os
 import time
 import pickle
 import torch
+import matplotlib.pyplot as plt
 
 job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
 print(job_id)
 
+print("n_estimator = [50, 100, 200, 300, 400, 500, 600, 650, 700, 800, 900, 1000], max_depths = [2, 3, 4, 5, 6, 7, 8],no_ecfp,RF,no_SMOTE")
  
 # Measure start time
 start_time = time.time()
 print(start_time)
 
-# Load the csv file. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
-file_path = 'bcf_data.csv'
+# Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
+file_path = '/home/ssd6515/Fish/bcf_data.csv'
 data = pd.read_csv(file_path)
 
 # Convert specified columns to numpy array
@@ -31,8 +33,22 @@ ON1V = data['ON1V'].to_numpy().reshape(-1, 1)
 N_072 = data['N-072'].to_numpy().reshape(-1, 1)
 B02_C_N = data['B02[C-N]'].to_numpy().reshape(-1, 1)
 F04_C_O = data['F04[C-O]'].to_numpy().reshape(-1, 1)
-#target variable
+
+# Target variable
 Class = data['Class'].to_numpy()
+
+# Feature names for feature importance plots/saving
+feature_names = np.array([
+    'nHM',
+    'piPC09',
+    'PCD',
+    'X2Av',
+    'MLOGP',
+    'ON1V',
+    'N-072',
+    'B02[C-N]',
+    'F04[C-O]'
+])
 
 # Concatenate features
 concatenated_data_woFP = np.concatenate(
@@ -49,8 +65,14 @@ total_id = np.arange(n_sample)
 all_fold_metrics = []      # each element is a dict of metrics from one fold
 all_fold_predictions = []  # raw predictions (as arrays) from each fold
 
+# Create a list to store the raw feature importances for each fold for later use
+all_feature_importances = []
+
+top_n = 10  # Number of top features to show
+
 # Also store repeat-level metrics (means and stds per repeat) in a list
 repeat_metrics_list = []
+
 # To store the best model from each repeat (lowest validation loss among the 5 folds)
 repeat_best_models = []
 repeat_best_val_losses = []
@@ -85,12 +107,13 @@ for repeat in range(5):
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 6
+    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
     patience_counter = 0
     
 
     for k in range(splits):
         print('  Batch:', k)
+
         # Split indices for train, validation, and test
         train_index = train_split_index[k][:int(len(train_split_index[k]) * 0.875)]
         valid_index = train_split_index[k][int(len(train_split_index[k]) * 0.875):]
@@ -123,7 +146,8 @@ for repeat in range(5):
 
         for ne in n_estimator:
             for m_d in max_depths:
-                # Define and train Gradient Boosting Classifier
+
+                # Define and train Random Forest Classifier
                 model = RandomForestClassifier(n_estimators=ne, max_depth=m_d)
                 model.fit(train_feature, train_label)
                 training_score = model.score(train_feature, train_label)
@@ -172,6 +196,46 @@ for repeat in range(5):
             avg_precision = np.mean(precision) if precision is not None else None
             avg_recall = np.mean(recall) if recall is not None else None
             avg_f1_not_weighted = np.mean(f1_not_weighted) if f1_not_weighted is not None else None
+
+            # ----- Additional Code for Feature Importance Plots -----
+            # Extract feature importances from the best model for this fold
+            feature_importances = best_model.feature_importances_
+
+            # Save feature importances for later use
+            all_feature_importances.append({
+                'repeat': repeat,
+                'fold': k,
+                'best_n_estimator': best_ne,
+                'best_max_depth': best_d,
+                'feature_names': feature_names,
+                'feature_importances': feature_importances
+            })
+
+            # Sort the feature importances and get top_n features
+            sorted_idx = np.argsort(feature_importances)[::-1][:top_n]
+            sorted_importances = feature_importances[sorted_idx]
+            sorted_features = feature_names[sorted_idx]
+
+            # Calculate cumulative importance, saved for possible future use
+            cumulative_importance = np.cumsum(sorted_importances)
+
+            # Plot top_n important features for the current fold
+            plt.figure(figsize=(10, 6))
+            plt.barh(
+                range(len(sorted_importances)),
+                sorted_importances,
+                align="center",
+                label="Feature Importance",
+                color="skyblue"
+            )
+            plt.yticks(range(len(sorted_importances)), sorted_features)
+            plt.xlabel("Feature Importance")
+            plt.title(f"Repeat {repeat + 1}, Fold {k + 1}: Top {top_n} Feature Importances")
+            plt.gca().invert_yaxis()  # Most important on top
+            plt.legend(loc="lower right")
+            plt.grid(axis='x', linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            plt.show()
             
         else:
             accuracy = precision = recall = f1_not_weighted = f1_weighted = training_score = training_loss = None
@@ -187,6 +251,7 @@ for repeat in range(5):
         repeat_recall.append(recall)
         repeat_f1_not_weighted.append(f1_not_weighted)
         repeat_predictions.append(best_pred)
+
         # Append the averaged metrics for this fold
         repeat_avg_precision_list.append(avg_precision)
         repeat_avg_recall_list.append(avg_recall)
@@ -212,6 +277,7 @@ for repeat in range(5):
         all_fold_predictions.append(best_pred)
         
         print(f"    Fold {k} metrics:")
+
         # Print the best hyperparameters for this batch
         print(f"    Best n_estimator: {best_ne}, Best max_depth: {best_d}")
         print(f"      Training Loss: {training_loss}, Training Score: {training_score}")
@@ -258,6 +324,7 @@ for repeat in range(5):
     print("  Validation Loss - Mean: {:.4f}, Std: {:.4f}".format(repeat_validation_losses.mean(), repeat_validation_losses.std()))
     print("  Accuracy - Mean: {:.4f}, Std: {:.4f}".format(repeat_accuracies.mean(), repeat_accuracies.std()))
     print("  F1 Weighted - Mean: {:.4f}, Std: {:.4f}".format(repeat_f1_weighted.mean(), repeat_f1_weighted.std()))
+
     if repeat_precision_arr is not None:
         print("  Precision - Mean: {}, Std: {}".format(np.mean(repeat_precision_arr, axis=0), np.std(repeat_precision_arr, axis=0)))
     
@@ -301,13 +368,20 @@ for repeat in range(5):
     }
     repeat_metrics_list.append(repeat_metrics)
 
+# Save all feature importances from all 25 best fold models
+with open('all_feature_importances_panela_rf.pkl', 'wb') as f:
+    pickle.dump(all_feature_importances, f)
+
+print("Feature importance plots generated for all 25 models and saved to 'all_feature_importances_panela_rf.pkl'.")
+
 # Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_rf_panela_repeat.pkl', 'wb') as f:
+with open('results_rf_panela_repeat_rf.pkl', 'wb') as f:
     pickle.dump({
         'all_fold_metrics': all_fold_metrics,
         'all_fold_predictions': all_fold_predictions,
         'repeat_metrics_list': repeat_metrics_list,
-        'repeat_best_hyperparams': repeat_best_hyperparams  # best hyperparameters per repeat
+        'repeat_best_hyperparams': repeat_best_hyperparams,  # best hyperparameters per repeat
+        'all_feature_importances': all_feature_importances
     }, f)
 
 # ----------------------------------------
@@ -360,7 +434,7 @@ all_metrics = {
     'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
 }
 
-with open('results_rf_panela_final_metrics.pkl', 'wb') as f:
+with open('results_rf_panela_final_metrics_rf.pkl', 'wb') as f:
     pickle.dump(all_metrics, f)
 
 # ----------------------------------------
@@ -370,9 +444,11 @@ best_repeat_index = np.argmin(repeat_best_val_losses)
 best_overall_model = repeat_best_models[best_repeat_index]
 best_repeat_hyper = repeat_best_hyperparams[best_repeat_index]
 print(f"Best Overall Model from repeat {best_repeat_index}: n_estimator = {best_repeat_hyper[0]}, max_depth = {best_repeat_hyper[1]}")
+
 # Save the best overall model as a .pt file using torch.save
-torch.save(best_overall_model, 'best_rf_model.pt')
-print("Best overall RF model saved as best_rf_model.pt")
+#torch.save(best_overall_model, 'best_rf_model_panela.pt')
+#print("Best overall RF model saved as best_rf_model_panela.pt")
+
 # ----------------------------------------
 
 end_time = time.time()

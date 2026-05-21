@@ -5,6 +5,7 @@ from utility import Kfold
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, log_loss
+from sklearn.preprocessing import StandardScaler
 import os
 import time
 import pickle
@@ -13,12 +14,14 @@ import torch  # For saving model with torch.save
 job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
 print(job_id)
 
+print("no_ecfp, LR-ElasticNet, no_SMOTE, C_pool = [0.1, 1.0, 10.0], l1l2_ratio = [0.25, 0.5, 0.75]")
+
 # Measure start time
 start_time = time.time()
 print(start_time)
 
-# Load the csv file. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
-file_path = 'bcf_data.csv'
+# Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
+file_path = '/home/ssd6515/Fish/bcf_data.csv'
 data = pd.read_csv(file_path)
 
 
@@ -86,7 +89,7 @@ for repeat in range(5):
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 6
+    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
     patience_counter = 0
 
     for k in range(splits):
@@ -120,12 +123,18 @@ for repeat in range(5):
         best_pred = None
         best_c = None
         best_r = None
+
+        scaler = StandardScaler()
+        train_feature = scaler.fit_transform(train_feature)
+        valid_feature = scaler.transform(valid_feature)
+        test_feature = scaler.transform(test_feature)
+
         # Iterate over each combination of C and penalty
         for ratio in l1l2_ratio:        
             for c in C_pool:
                 model = LogisticRegression(C=c, penalty='elasticnet', l1_ratio=ratio, 
                                         solver='saga', class_weight='balanced', 
-                                        multi_class='multinomial', max_iter=100)
+                                         max_iter=6000)
                 model.fit(train_feature, train_label)
                 training_score = model.score(train_feature, train_label)
 

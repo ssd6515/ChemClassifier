@@ -14,13 +14,14 @@ from matplotlib import pyplot as plt
 # Get job id and print run details
 job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
 print(job_id)
+print("n_estimator = [50, 100, 200, 300, 400, 500, 600, 650, 700, 800, 900, 1000], max_depths = [2, 3, 4, 5, 6, 7, 8], no_ecfp, no_SMOTE")
 
 # Measure start time
 start_time = time.time()
 print(start_time)
 
 # Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
-file_path = 'bcf_data.csv'
+file_path = '/home/ssd6515/Fish/bcf_data.csv'
 data = pd.read_csv(file_path)
 
 # Extract features
@@ -96,7 +97,7 @@ for repeat in range(5):
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 6
+    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
     patience_counter = 0
 
     for k in range(splits):
@@ -319,7 +320,7 @@ for repeat in range(5):
     repeat_metrics_list.append(repeat_metrics)
 
 # Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_gbrt_panela_repeat.pkl', 'wb') as f:
+with open('results_gbrt_panela_repeat_gbrt.pkl', 'wb') as f:
     pickle.dump({
         'all_fold_metrics': all_fold_metrics,
         'all_fold_predictions': all_fold_predictions,
@@ -377,7 +378,7 @@ all_metrics = {
     'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
 }
 
-with open('results_gbrt_panela_final_metrics.pkl', 'wb') as f:
+with open('results_gbrt_panela_final_metrics_gbrt.pkl', 'wb') as f:
     pickle.dump(all_metrics, f)
 
 # ----------------------------------------
@@ -429,10 +430,10 @@ for fold_idx, model in enumerate(all_fold_models):
     plt.show()
 
 # Save all the feature importances (from all 25 models) to a file for later use
-with open('all_feature_importances_panela.pkl', 'wb') as f:
+with open('all_feature_importances_panela_gbrt.pkl', 'wb') as f:
     pickle.dump(all_feature_importances, f)
 
-print("Feature importance plots generated for all 25 models and saved to 'all_feature_importances_panela.pkl'.")
+print("Feature importance plots generated for all 25 models and saved to 'all_feature_importances_panela_gbrt.pkl'.")
 
 end_time = time.time()
 execution_time = (end_time - start_time) / 60

@@ -14,13 +14,14 @@ import torch  # For saving model with torch.save
 # Get job id and print run details
 job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
 print(job_id)
+print("hidden_layer_sizes_values = [(50,), (100,), (200,), (50, 50), (100, 100)], alpha_values = [0.0001, 0.001, 0.01, 0.1], learning_rate_init_values = [0.001, 0.01, 0.05, 0.1], learning_rate_values = ['constant', 'invscaling', 'adaptive'], mlp_t2_panela_nosmote")
 
 # Measure start time
 start_time = time.time()
 print(start_time)
 
-# Load the csv file. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
-file_path = 'bcf_data.csv'
+# Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
+file_path = '/home/ssd6515/Fish/bcf_data.csv'
 data = pd.read_csv(file_path)
 
 SMILES = data['SMILES'].to_numpy()
@@ -90,7 +91,7 @@ for repeat in range(5):
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 6
+    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
     patience_counter = 0
 
     for k in range(splits):
@@ -323,7 +324,7 @@ for repeat in range(5):
     repeat_metrics_list.append(repeat_metrics)
 
 # Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_mlp_panelc_repeat.pkl', 'wb') as f:
+with open('results_mlp_t2panela_repeat.pkl', 'wb') as f:
     pickle.dump({
         'all_fold_metrics': all_fold_metrics,
         'all_fold_predictions': all_fold_predictions,
@@ -381,7 +382,7 @@ all_metrics = {
     'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
 }
 
-with open('results_mlp_panelc_final_metrics.pkl', 'wb') as f:
+with open('results_mlp_t2panela_final_metrics.pkl', 'wb') as f:
     pickle.dump(all_metrics, f)
 
 # ----------------------------------------
@@ -392,8 +393,8 @@ best_overall_model = repeat_best_models[best_repeat_index]
 best_repeat_hyper = repeat_best_hyperparams[best_repeat_index]
 print(f"Best Overall Model from repeat {best_repeat_index}: hidden_layer_sizes = {best_repeat_hyper[0]}, alpha = {best_repeat_hyper[1]}, learning_rate_init = {best_repeat_hyper[2]}, learning_rate = {best_repeat_hyper[3]}")
 # Save the best overall model as a .pt file using torch.save
-torch.save(best_overall_model, 'best_mlp_model.pt')
-print("Best overall MLP model saved as best_mlp_model.pt")
+#torch.save(best_overall_model, 'best_mlp_model.pt')
+#print("Best overall MLP model saved as best_mlp_model.pt")
 # ----------------------------------------
 
 end_time = time.time()

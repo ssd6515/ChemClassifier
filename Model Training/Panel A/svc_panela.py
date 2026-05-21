@@ -1,4 +1,5 @@
 # Model Training for Panel A: Support Vector Classifier (SVC) with Dragon descriptors
+#21324
 import pandas as pd
 import numpy as np
 from utility import Kfold
@@ -13,12 +14,14 @@ import torch
 job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
 print(job_id)
 
+print("gamma_values = [0.001,0.002,0.003,0.004,0.005,0.006, 0.0061,0.0062,0.0063,0.0064,0.0065,0.0066,0.0067,0.0068,0.0069,0.007,0.0071,0.0072,0.0073,0.0074,0.0075,0.0076,0.0077,0.0078,0.0079,0.008,0.0081,0.0082,0.0083,0.0084,0.00841,0.00842,0.00843,0.00844,0.00845,0.00846,0.00847,0.00848,0.00849,0.0085,0.0086,0.0087,0.0088,0.0089,0.009,0.01,0.011,0.012,0.013,0.014,0.015,0.016,0.0161,0.0162,0.0163,0.0164,0.0165,0.0166,0.0167,0.0168,0.0169,0.017,0.018,0.019,0.02,0.021,0.022,0.023,0.024,0.025,0.026,0.027,0.028,0.029,0.03,0.04,0.05,0.06,0.07,0.08,0.09, 0.1], C_values = [30,31,32,33,33.1,33.2,33.3,33.4,33.5,33.6,33.7,33.8,33.81,33.82,33.83,33.84,33.85,33.86,33.87,33.88,33.89,33.9,34,35,36,37,38,39,40,41,41.1,41.2,41.3,41.4,41.5,41.6,41.7,41.8,41.9,42,42.1,42.3,42.4,42.5,42.6,42.7,42.8,42.9,43,44,45,46,46.1,46.2,46.3,46.4,46.5,46.51,46.52,46.53,46.54,46.55,46.56,46.57,46.58,46.59,46.6,46.61,46.62,46.7,46.8,46.9,47,47.1,47.2,47.3,47.4,47.5,47.6,47.7,47.8,47.9,48,49, 50],no_ecfp, no_SMOTE")
+
 # Measure start time
 start_time = time.time()
 print(start_time)
 
-# Load the csv file. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
-file_path = 'bcf_data.csv'
+# Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
+file_path = '/home/ssd6515/Fish/bcf_data.csv'
 data = pd.read_csv(file_path)
 
 # Convert specified columns to numpy array
@@ -84,7 +87,7 @@ for repeat in range(5):
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 6
+    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
     patience_counter = 0
 
     for k in range(splits):
@@ -299,7 +302,7 @@ for repeat in range(5):
     repeat_metrics_list.append(repeat_metrics)
 
 # Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_svc_panela_repeat.pkl', 'wb') as f:
+with open('results_svc_panela_repeat_svc.pkl', 'wb') as f:
     pickle.dump({
         'all_fold_metrics': all_fold_metrics,
         'all_fold_predictions': all_fold_predictions,
@@ -357,7 +360,7 @@ all_metrics = {
     'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
 }
 
-with open('results_svc_panela_final_metrics.pkl', 'wb') as f:
+with open('results_svc_panela_final_metrics_svc.pkl', 'wb') as f:
     pickle.dump(all_metrics, f)
 
 # ----------------------------------------
@@ -368,8 +371,8 @@ best_overall_model = repeat_best_models[best_repeat_index]
 best_repeat_hyper = repeat_best_hyperparams[best_repeat_index]
 print(f"Best Overall Model from repeat {best_repeat_index}: Gamma = {best_repeat_hyper[0]}, C = {best_repeat_hyper[1]}")
 # Save the best overall model as a .pt file using torch.save
-torch.save(best_overall_model, 'best_svc_model.pt')
-print("Best overall GBDT model saved as best_gbdt_model.pt")
+#torch.save(best_overall_model, 'best_svc_model.pt')
+#print("Best overall GBDT model saved as best_gbdt_model.pt")
 # ----------------------------------------
 
 end_time = time.time()

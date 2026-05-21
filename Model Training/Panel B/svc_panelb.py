@@ -3,29 +3,55 @@ import pandas as pd
 import numpy as np
 from utility import Kfold
 from sklearn.svm import SVC
-from sklearn.metrics import f1_score
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, log_loss
 import os
 import time
 import pickle
 import torch
 
+def compute_train_column_means(X_train):
+    """
+    Compute column means from the training set only.
+    If a column is entirely NaN in training, replace that mean with 0.0.
+    """
+    X_train = np.asarray(X_train, dtype=float)
+
+    train_col_means = np.nanmean(X_train, axis=0)
+    train_col_means = np.where(np.isnan(train_col_means), 0.0, train_col_means)
+
+    return train_col_means
+
+
+def mean_impute_with_given_column_means(X, col_means):
+    """
+    Impute missing values in X using precomputed column means.
+    These means should come from the training set.
+    """
+    X = np.asarray(X, dtype=float).copy()
+
+    missing_rows, missing_cols = np.where(np.isnan(X))
+    X[missing_rows, missing_cols] = col_means[missing_cols]
+
+    return X
+    
 job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
 print(job_id)
+
+print("gamma_values = [0.001,0.002,0.003,0.004,0.005,0.006, 0.0061,0.0062,0.0063,0.0064,0.0065,0.0066,0.0067,0.0068,0.0069,0.007,0.0071,0.0072,0.0073,0.0074,0.0075,0.0076,0.0077,0.0078,0.0079,0.008,0.0081,0.0082,0.0083,0.0084,0.00841,0.00842,0.00843,0.00844,0.00845,0.00846,0.00847,0.00848,0.00849,0.0085,0.0086,0.0087,0.0088,0.0089,0.009,0.01,0.011,0.012,0.013,0.014,0.015,0.016,0.0161,0.0162,0.0163,0.0164,0.0165,0.0166,0.0167,0.0168,0.0169,0.017,0.018,0.019,0.02,0.021,0.022,0.023,0.024,0.025,0.026,0.027,0.028,0.029,0.03,0.04,0.05,0.06,0.07,0.08,0.09, 0.1], C_values = [30,31,32,33,33.1,33.2,33.3,33.4,33.5,33.6,33.7,33.8,33.81,33.82,33.83,33.84,33.85,33.86,33.87,33.88,33.89,33.9,34,35,36,37,38,39,40,41,41.1,41.2,41.3,41.4,41.5,41.6,41.7,41.8,41.9,42,42.1,42.3,42.4,42.5,42.6,42.7,42.8,42.9,43,44,45,46,46.1,46.2,46.3,46.4,46.5,46.51,46.52,46.53,46.54,46.55,46.56,46.57,46.58,46.59,46.6,46.61,46.62,46.7,46.8,46.9,47,47.1,47.2,47.3,47.4,47.5,47.6,47.7,47.8,47.9,48,49, 50],rdkit, noSMOTE")
 
 # Measure start time
 start_time = time.time()
 print(start_time)
 
 # Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was generated.
-file_path = 'rdkit_data.csv'
+file_path = '/home/ssd6515/Fish/rdkit_data.csv'
 data = pd.read_csv(file_path)
-
 
 Class = data['Class'].to_numpy()
 
 features = data.drop(columns=['CAS', 'QSAR_READY_SMILES', 'mol', 'Class'])
 X_numpy = features.to_numpy()
+
 # Concatenate features
 concatenated_data_woFP = X_numpy
 
@@ -37,16 +63,17 @@ total_id = np.arange(n_sample)
 
 # Lists to store metrics and predictions for all 25 models (5 repeats x 5 folds)
 all_fold_metrics = []      # each element is a dict of metrics from one fold
-all_fold_predictions = []  # raw predictions (as arrays) from each fold
+all_fold_predictions = []  # raw predictions as arrays from each fold
 
-# Also store repeat-level metrics (means and stds per repeat) in a list
+# Also store repeat-level metrics, means and stds per repeat, in a list
 repeat_metrics_list = []
-# To store the best model from each repeat (lowest validation loss among the 5 folds)
+
+# To store the best model from each repeat, lowest validation loss among the 5 folds
 repeat_best_models = []
 repeat_best_val_losses = []
 repeat_best_hyperparams = []  # To store best_gamma and best_c per repeat
 
-# Loop over repeats (for stability, 5 repeats → 25 models total)
+# Loop over repeats for stability, 5 repeats -> 25 models total
 for repeat in range(5):
     print('repeat:', repeat)
     np.random.shuffle(total_id)
@@ -59,11 +86,11 @@ for repeat in range(5):
     repeat_validation_losses = []
     repeat_accuracies = []
     repeat_f1_weighted = []
-    repeat_precision = []       # list of arrays (per fold)
-    repeat_recall = []          # list of arrays (per fold)
-    repeat_f1_not_weighted = [] # list of arrays (per fold)
+    repeat_precision = []       # list of arrays, per fold
+    repeat_recall = []          # list of arrays, per fold
+    repeat_f1_not_weighted = [] # list of arrays, per fold
 
-    # Lists for the averaged metrics (across classes) per fold
+    # Lists for the averaged metrics across classes per fold
     repeat_avg_precision_list = []
     repeat_avg_recall_list = []
     repeat_avg_f1_not_weighted_list = []
@@ -75,11 +102,12 @@ for repeat in range(5):
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 6
+    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
     patience_counter = 0
 
     for k in range(splits):
         print('  Batch:', k)
+
         # Split indices for train, validation, and test
         train_index = train_split_index[k][:int(len(train_split_index[k]) * 0.875)]
         valid_index = train_split_index[k][int(len(train_split_index[k]) * 0.875):]
@@ -92,16 +120,38 @@ for repeat in range(5):
         
         train_feature = np.array([concatenated_data_woFP[i] for i in train_id])
         train_label = np.array([Class[i] for i in train_id])
+
         print("    Training data shape before SMOTE:", train_feature.shape)
         print("    Training labels shape before SMOTE:", train_label.shape)
         
         valid_feature = np.array([concatenated_data_woFP[i] for i in valid_id])
         valid_label = np.array([Class[i] for i in valid_id])
+
         test_feature = np.array([concatenated_data_woFP[i] for i in test_id])
         test_label = np.array([Class[i] for i in test_id])
 
-        gamma_values = [0.001,0.002,0.003,0.004,0.005,0.006,0.0061,0.0062,0.0063,0.0064,0.0065,0.0066,0.0067,0.0068,0.0069,0.007,0.0071,0.0072,0.0073,0.0074,0.0075,0.0076,0.0077,0.0078,0.0079,0.008,0.0081,0.0082,0.0083,0.0084,0.00841,0.00842,0.00843,0.00844,0.00845,0.00846,0.00847,0.00848,0.00849,0.0085,0.0086,0.0087,0.0088,0.0089,0.009,0.01,0.011,0.012,0.013,0.014,0.015,0.016,0.0161,0.0162,0.0163,0.0164,0.0165,0.0166,0.0167,0.0168,0.0169,0.017,0.018,0.019,0.02,0.021,0.022,0.023,0.024,0.025,0.026,0.027,0.028,0.029,0.03,0.04,0.05,0.06,0.07,0.08,0.09, 0.1] # Controls the flexibility of the decision boundary. high - overfit
-        C_values = [30,31,32,33,33.1,33.2,33.3,33.4,33.5,33.6,33.7,33.8,33.81,33.82,33.83,33.84,33.85,33.86,33.87,33.88,33.89,33.9,34,35,36,37,38,39,40,41,41.1,41.2,41.3,41.4,41.5,41.6,41.7,41.8,41.9,42,42.1,42.3,42.4,42.5,42.6,42.7,42.8,42.9,43,44,45,46,46.1,46.2,46.3,46.4,46.5,46.51,46.52,46.53,46.54,46.55,46.56,46.57,46.58,46.59,46.6,46.61,46.62,46.7,46.8,46.9,47,47.1,47.2,47.3,47.4,47.5,47.6,47.7,47.8,47.9,48,49, 50] 
+        gamma_values = [
+            0.001, 0.002, 0.003, 0.004, 0.005,
+            0.006, 0.0061, 0.0062, 0.0063, 0.0064, 0.0065, 0.0066, 0.0067, 0.0068, 0.0069,
+            0.007, 0.0071, 0.0072, 0.0073, 0.0074, 0.0075, 0.0076, 0.0077, 0.0078, 0.0079,
+            0.008, 0.0081, 0.0082, 0.0083, 0.0084, 0.00841, 0.00842, 0.00843, 0.00844,
+            0.00845, 0.00846, 0.00847, 0.00848, 0.00849, 0.0085, 0.0086, 0.0087, 0.0088,
+            0.0089, 0.009, 0.01, 0.011, 0.012, 0.013, 0.014, 0.015,
+            0.016, 0.0161, 0.0162, 0.0163, 0.0164, 0.0165, 0.0166, 0.0167, 0.0168, 0.0169,
+            0.017, 0.018, 0.019, 0.02, 0.021, 0.022, 0.023, 0.024, 0.025, 0.026, 0.027,
+            0.028, 0.029, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1
+        ]
+
+        C_values = [
+            30, 31, 32, 33, 33.1, 33.2, 33.3, 33.4, 33.5, 33.6, 33.7, 33.8,
+            33.81, 33.82, 33.83, 33.84, 33.85, 33.86, 33.87, 33.88, 33.89, 33.9,
+            34, 35, 36, 37, 38, 39, 40, 41, 41.1, 41.2, 41.3, 41.4, 41.5, 41.6,
+            41.7, 41.8, 41.9, 42, 42.1, 42.3, 42.4, 42.5, 42.6, 42.7, 42.8, 42.9,
+            43, 44, 45, 46, 46.1, 46.2, 46.3, 46.4, 46.5, 46.51, 46.52, 46.53,
+            46.54, 46.55, 46.56, 46.57, 46.58, 46.59, 46.6, 46.61, 46.62, 46.7,
+            46.8, 46.9, 47, 47.1, 47.2, 47.3, 47.4, 47.5, 47.6, 47.7, 47.8, 47.9,
+            48, 49, 50
+        ]
 
         best_valid_loss = np.inf
         best_model = None
@@ -109,11 +159,28 @@ for repeat in range(5):
         best_g = None
         best_c = None
 
+        # Mean imputation using training-set column means only
+        train_col_means = compute_train_column_means(train_feature)
+
+        train_feature = mean_impute_with_given_column_means(train_feature, train_col_means)
+        valid_feature = mean_impute_with_given_column_means(valid_feature, train_col_means)
+        test_feature = mean_impute_with_given_column_means(test_feature, train_col_means)
+
+        print("train_feature NAN count after imputation:", np.isnan(train_feature).sum())
+        print("valid_feature NAN count after imputation:", np.isnan(valid_feature).sum())
+        print("test_feature NAN count after imputation:", np.isnan(test_feature).sum())
+
         for gamma in gamma_values:
             for C in C_values:
-                # Define and train Gradient Boosting Classifier
-                model = SVC(kernel='rbf', gamma=gamma, C=C, probability=True)
+                # Define and train SVC classifier
+                model = SVC(
+                    kernel='rbf',
+                    gamma=gamma,
+                    C=C,
+                    probability=True
+                )
                 model.fit(train_feature, train_label)
+
                 training_score = model.score(train_feature, train_label)
 
                 # Compute training log loss
@@ -140,7 +207,7 @@ for repeat in range(5):
                     print(f"Early stopping at batch {k}")
                     break
         
-        # Update repeat-best model if current fold's valid loss is lower
+        # Update repeat-best model if current fold's validation loss is lower
         if best_valid_loss < repeat_best_val_loss:
             repeat_best_val_loss = best_valid_loss
             repeat_best_model = best_model
@@ -149,10 +216,15 @@ for repeat in range(5):
         # Compute metrics for the current fold
         if best_model is not None:
             accuracy = accuracy_score(test_label, best_pred)
+
+            # Per-class metrics for this fold
             precision = precision_score(test_label, best_pred, average=None)
             recall = recall_score(test_label, best_pred, average=None)
             f1_not_weighted = f1_score(test_label, best_pred, average=None)
+
+            # Weighted F1 for this fold
             f1_weighted = f1_score(test_label, best_pred, average='weighted')
+
             training_score = best_model.score(train_feature, train_label)
             training_loss = log_loss(train_label, best_model.predict_proba(train_feature)) 
 
@@ -162,8 +234,16 @@ for repeat in range(5):
             avg_f1_not_weighted = np.mean(f1_not_weighted) if f1_not_weighted is not None else None
             
         else:
-            accuracy = precision = recall = f1_not_weighted = f1_weighted = training_score = training_loss = None
-            avg_precision = avg_recall = avg_f1_not_weighted = None
+            accuracy = None
+            precision = None
+            recall = None
+            f1_not_weighted = None
+            f1_weighted = None
+            training_score = None
+            training_loss = None
+            avg_precision = None
+            avg_recall = None
+            avg_f1_not_weighted = None
 
         # Append fold-level metrics to repeat lists
         repeat_training_losses.append(training_loss)
@@ -175,12 +255,13 @@ for repeat in range(5):
         repeat_recall.append(recall)
         repeat_f1_not_weighted.append(f1_not_weighted)
         repeat_predictions.append(best_pred)
+
         # Append the averaged metrics for this fold
         repeat_avg_precision_list.append(avg_precision)
         repeat_avg_recall_list.append(avg_recall)
         repeat_avg_f1_not_weighted_list.append(avg_f1_not_weighted)
 
-        # Also store these fold metrics in our overall list (for 25 models)
+        # Also store these fold metrics in the overall list for 25 models
         fold_metrics = {
             'training_loss': training_loss,
             'training_score': training_score,
@@ -196,11 +277,11 @@ for repeat in range(5):
             'best_gamma': best_g,
             'best_c': best_c
         }
+
         all_fold_metrics.append(fold_metrics)
         all_fold_predictions.append(best_pred)
         
         print(f"    Fold {k} metrics:")
-        # Print the best hyperparameters for this batch
         print(f"    Best Gamma: {best_g}, Best C: {best_c}")
         print(f"      Training Loss: {training_loss}, Training Score: {training_score}")
         print(f"      Validation Loss: {best_valid_loss}")
@@ -220,7 +301,7 @@ for repeat in range(5):
     
     print(f"repeat {repeat} Best Model Hyperparameters: Gamma = {repeat_best_hyper[0]}, C = {repeat_best_hyper[1]}")
     
-    # Compute the repeat-level averaged metrics (over the 5 folds)
+    # Compute the repeat-level averaged metrics over the 5 folds
     repeat_avg_precision_mean = np.mean(repeat_avg_precision_list)
     repeat_avg_precision_std = np.std(repeat_avg_precision_list)
     repeat_avg_recall_mean = np.mean(repeat_avg_recall_list)
@@ -235,31 +316,65 @@ for repeat in range(5):
     repeat_accuracies = np.array(repeat_accuracies)
     repeat_f1_weighted = np.array(repeat_f1_weighted)
     
-    # For precision, recall, and f1 (not weighted) stack the arrays (each is per fold)
+    # For precision, recall, and f1 not weighted, stack the arrays
     repeat_precision_arr = np.vstack(repeat_precision) if repeat_precision[0] is not None else None
     repeat_recall_arr = np.vstack(repeat_recall) if repeat_recall[0] is not None else None
     repeat_f1_not_weighted_arr = np.vstack(repeat_f1_not_weighted) if repeat_f1_not_weighted[0] is not None else None
     
     print(f"repeat {repeat} Aggregated Metrics:")
-    print("  Training Loss - Mean: {:.4f}, Std: {:.4f}".format(repeat_training_losses.mean(), repeat_training_losses.std()))
-    print("  Training Score - Mean: {:.4f}, Std: {:.4f}".format(repeat_training_scores.mean(), repeat_training_scores.std()))
-    print("  Validation Loss - Mean: {:.4f}, Std: {:.4f}".format(repeat_validation_losses.mean(), repeat_validation_losses.std()))
-    print("  Accuracy - Mean: {:.4f}, Std: {:.4f}".format(repeat_accuracies.mean(), repeat_accuracies.std()))
-    print("  F1 Weighted - Mean: {:.4f}, Std: {:.4f}".format(repeat_f1_weighted.mean(), repeat_f1_weighted.std()))
+    print("  Training Loss - Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_training_losses.mean(),
+        repeat_training_losses.std()
+    ))
+    print("  Training Score - Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_training_scores.mean(),
+        repeat_training_scores.std()
+    ))
+    print("  Validation Loss - Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_validation_losses.mean(),
+        repeat_validation_losses.std()
+    ))
+    print("  Accuracy - Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_accuracies.mean(),
+        repeat_accuracies.std()
+    ))
+    print("  F1 Weighted - Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_f1_weighted.mean(),
+        repeat_f1_weighted.std()
+    ))
+
     if repeat_precision_arr is not None:
-        print("  Precision - Mean: {}, Std: {}".format(np.mean(repeat_precision_arr, axis=0), np.std(repeat_precision_arr, axis=0)))
+        print("  Precision - Mean: {}, Std: {}".format(
+            np.mean(repeat_precision_arr, axis=0),
+            np.std(repeat_precision_arr, axis=0)
+        ))
     
-    print("  Avg Precision over folds: Mean: {:.4f}, Std: {:.4f}".format(repeat_avg_precision_mean, repeat_avg_precision_std))
+    print("  Avg Precision over folds: Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_avg_precision_mean,
+        repeat_avg_precision_std
+    ))
     
     if repeat_recall_arr is not None:
-        print("  Recall - Mean: {}, Std: {}".format(np.mean(repeat_recall_arr, axis=0), np.std(repeat_recall_arr, axis=0)))
+        print("  Recall - Mean: {}, Std: {}".format(
+            np.mean(repeat_recall_arr, axis=0),
+            np.std(repeat_recall_arr, axis=0)
+        ))
     
-    print("  Avg Recall over folds: Mean: {:.4f}, Std: {:.4f}".format(repeat_avg_recall_mean, repeat_avg_recall_std))
+    print("  Avg Recall over folds: Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_avg_recall_mean,
+        repeat_avg_recall_std
+    ))
 
     if repeat_f1_not_weighted_arr is not None:
-        print("  F1 (Not Weighted) - Mean: {}, Std: {}".format(np.mean(repeat_f1_not_weighted_arr, axis=0), np.std(repeat_f1_not_weighted_arr, axis=0)))
+        print("  F1 (Not Weighted) - Mean: {}, Std: {}".format(
+            np.mean(repeat_f1_not_weighted_arr, axis=0),
+            np.std(repeat_f1_not_weighted_arr, axis=0)
+        ))
     
-    print("  Avg F1 (Not Weighted) over folds: Mean: {:.4f}, Std: {:.4f}".format(repeat_avg_f1_not_weighted_mean, repeat_avg_f1_not_weighted_std))
+    print("  Avg F1 (Not Weighted) over folds: Mean: {:.4f}, Std: {:.4f}".format(
+        repeat_avg_f1_not_weighted_mean,
+        repeat_avg_f1_not_weighted_std
+    ))
 
     # Store aggregated metrics for this repeat
     repeat_metrics = {
@@ -285,17 +400,18 @@ for repeat in range(5):
         'avg_recall_std': repeat_avg_recall_std,
         'avg_f1_not_weighted_mean': repeat_avg_f1_not_weighted_mean,
         'avg_f1_not_weighted_std': repeat_avg_f1_not_weighted_std,
-        'predictions': repeat_predictions  # list of predictions (one per fold)
+        'predictions': repeat_predictions
     }
+
     repeat_metrics_list.append(repeat_metrics)
 
-# Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_svc_panelb_repeat.pkl', 'wb') as f:
+# Save all fold metrics and predictions as well as repeat-level metrics
+with open('results_svc_panelb_repeat_svc.pkl', 'wb') as f:
     pickle.dump({
         'all_fold_metrics': all_fold_metrics,
         'all_fold_predictions': all_fold_predictions,
         'repeat_metrics_list': repeat_metrics_list,
-        'repeat_best_hyperparams': repeat_best_hyperparams  # best hyperparameters per repeat
+        'repeat_best_hyperparams': repeat_best_hyperparams
     }, f)
 
 # ----------------------------------------
@@ -306,6 +422,15 @@ all_f1_weighted = np.array([fm['f1_weighted'] for fm in all_fold_metrics])
 all_avg_precision = np.array([fm['avg_precision'] for fm in all_fold_metrics])
 all_avg_recall = np.array([fm['avg_recall'] for fm in all_fold_metrics])
 all_avg_f1_not_weighted = np.array([fm['avg_f1_not_weighted'] for fm in all_fold_metrics])
+
+# Per-class metrics across all 25 models/folds
+# Shape: (25, n_classes), where each row contains the per-class metrics from one fold
+all_precision_per_class = np.vstack([fm['precision'] for fm in all_fold_metrics])
+all_recall_per_class = np.vstack([fm['recall'] for fm in all_fold_metrics])
+all_f1_per_class = np.vstack([fm['f1_not_weighted'] for fm in all_fold_metrics])
+
+# Class labels are inferred from the dataset so the output is tied to the actual class names/values
+class_labels = np.unique(Class)
 
 print("25 Fold Accuracy Results:")
 print(all_accuracies)
@@ -322,6 +447,15 @@ print(all_avg_recall)
 print("25 Fold Average F1 (Not Weighted) Results:")
 print(all_avg_f1_not_weighted)
 
+print("25 Fold Per-Class Precision Results:")
+print(all_precision_per_class)
+
+print("25 Fold Per-Class Recall Results:")
+print(all_recall_per_class)
+
+print("25 Fold Per-Class F1 Results:")
+print(all_f1_per_class)
+
 # Compute overall mean and standard deviation
 final_metrics = {
     'accuracy_mean': np.mean(all_accuracies),
@@ -333,12 +467,25 @@ final_metrics = {
     'avg_recall_mean': np.mean(all_avg_recall),
     'avg_recall_std': np.std(all_avg_recall),
     'avg_f1_not_weighted_mean': np.mean(all_avg_f1_not_weighted),
-    'avg_f1_not_weighted_std': np.std(all_avg_f1_not_weighted)
+    'avg_f1_not_weighted_std': np.std(all_avg_f1_not_weighted),
+    'precision_per_class_mean': np.mean(all_precision_per_class, axis=0),
+    'precision_per_class_std': np.std(all_precision_per_class, axis=0),
+    'recall_per_class_mean': np.mean(all_recall_per_class, axis=0),
+    'recall_per_class_std': np.std(all_recall_per_class, axis=0),
+    'f1_per_class_mean': np.mean(all_f1_per_class, axis=0),
+    'f1_per_class_std': np.std(all_f1_per_class, axis=0)
 }
 
 print('\nFinal Overall Metrics across 25 Models (Mean and Std):')
 for metric, value in final_metrics.items():
     print(f'{metric}: {value}')
+
+print('\nFinal Per-Class Metrics across 25 Models (Mean +/- Std):')
+for class_idx, class_label in enumerate(class_labels):
+    print(f'Class {class_label}:')
+    print(f'  Precision: {final_metrics["precision_per_class_mean"][class_idx]:.4f} +/- {final_metrics["precision_per_class_std"][class_idx]:.4f}')
+    print(f'  Recall:    {final_metrics["recall_per_class_mean"][class_idx]:.4f} +/- {final_metrics["recall_per_class_std"][class_idx]:.4f}')
+    print(f'  F1 Score:  {final_metrics["f1_per_class_mean"][class_idx]:.4f} +/- {final_metrics["f1_per_class_std"][class_idx]:.4f}')
 
 all_metrics = {
     'accuracy_mean': all_accuracies,
@@ -346,21 +493,35 @@ all_metrics = {
     'avg_precision_mean': all_avg_precision,
     'avg_recall_mean': all_avg_recall,
     'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
+    'precision_per_class_all_folds': all_precision_per_class,
+    'recall_per_class_all_folds': all_recall_per_class,
+    'f1_per_class_all_folds': all_f1_per_class,
+    'precision_per_class_mean': final_metrics['precision_per_class_mean'],
+    'precision_per_class_std': final_metrics['precision_per_class_std'],
+    'recall_per_class_mean': final_metrics['recall_per_class_mean'],
+    'recall_per_class_std': final_metrics['recall_per_class_std'],
+    'f1_per_class_mean': final_metrics['f1_per_class_mean'],
+    'f1_per_class_std': final_metrics['f1_per_class_std'],
+    'class_labels': class_labels,
 }
 
-with open('results_svc_panelb_final_metrics.pkl', 'wb') as f:
+with open('results_svc_panelb_final_metrics_svc.pkl', 'wb') as f:
     pickle.dump(all_metrics, f)
 
 # ----------------------------------------
 # Select the overall best model from the 5 repeat-best models
-# Here we choose the one with the lowest validation loss.
+# Here we choose the one with the lowest validation loss
+
 best_repeat_index = np.argmin(repeat_best_val_losses)
 best_overall_model = repeat_best_models[best_repeat_index]
 best_repeat_hyper = repeat_best_hyperparams[best_repeat_index]
+
 print(f"Best Overall Model from repeat {best_repeat_index}: Gamma = {best_repeat_hyper[0]}, C = {best_repeat_hyper[1]}")
+
 # Save the best overall model as a .pt file using torch.save
-torch.save(best_overall_model, 'best_svc_model.pt')
-print("Best overall GBDT model saved as best_gbdt_model.pt")
+torch.save(best_overall_model, 'best_svc_model_panelb.pt')
+print("Best overall SVC model saved as best_svc_model_panelb.pt")
+
 # ----------------------------------------
 
 end_time = time.time()
