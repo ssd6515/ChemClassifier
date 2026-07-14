@@ -16,7 +16,7 @@ ChemClassifier/
 |   `-- environment.yml
 |-- RDKit Data Exraction/
 |   |-- Generate_RDKit_Features.ipynb
-|   `-- rdkit_data.csv
+|   `-- rdkit_data_12_missing_features.csv
 |-- Model Training/
 |   |-- utility.py
 |   |-- Panel A/
@@ -33,7 +33,7 @@ ChemClassifier/
 ## What Each Panel Represents
 
 - `Panel A`: Model Training for Dragon descriptor subset from `bcf_data.csv`
-- `Panel B`: Model Training for RDKit descriptor from `rdkit_data.csv`
+- `Panel B`: Model Training for RDKit descriptor from `rdkit_data_12_missing_features.csv`
 - `Panel C`: Model Training for ECFP (Morgan fingerprint) generated from SMILES in `bcf_data.csv`
 - `Panel D`: Model Training for MACCS fingerprint generated from SMILES in `bcf_data.csv`
 
@@ -65,7 +65,7 @@ This environment includes the main dependencies used by the project, including:
 There are two main training inputs:
 
 - `bcf_data.csv`: Obtained from Grisoni, F., Consonni, V., Vighi, M., Villa, S., Todeschini, R., 2016. Investigating the mechanisms of bioconcentration through QSAR classification trees. Environ Int 88, 198-205. https://doi.org/10.1016/j.envint.2015.12.024.
-- `rdkit_data.csv`: Refer to [RDKit Data Exraction/Generate_RDKit_Features.ipynb](https://github.com/ssd6515/ChemClassifier/blob/e648f50dba96e318822f68b0654564867bb3ba21/RDKit%20Data%20Exraction/Generate_RDKit_Features.ipynb) for details on how this dataset was generated. This dataset is provided at [RDKit Data Extraction/rdkit_data.csv](https://github.com/ssd6515/ChemClassifier/blob/e648f50dba96e318822f68b0654564867bb3ba21/RDKit%20Data%20Exraction/rdkit_data.csv)
+- `rdkit_data.csv`: Refer to [RDKit Data Exraction/Generate_RDKit_Features.ipynb](https://github.com/ssd6515/ChemClassifier/blob/e648f50dba96e318822f68b0654564867bb3ba21/RDKit%20Data%20Exraction/Generate_RDKit_Features.ipynb) for details on how this dataset was generated. This dataset is provided at [RDKit Data Extraction/rdkit_data_12_missing_features.csv](https://github.com/ssd6515/ChemClassifier/blob/cbbc0b3ae807f09fc188cf04b07724f5fd7aaa31/RDKit%20Data%20Exraction/rdkit_data_12_missing_features.csv)
 
 ## Model Training
 
