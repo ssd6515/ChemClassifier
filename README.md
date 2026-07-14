@@ -82,6 +82,7 @@ There are two main training inputs:
 - `lr_panelb.py`: Logistic Regression with RDKit descriptors
 - `rf_panelb.py`: Random Forest (RF) with RDKit descriptors
 - `svc_panelb.py`: Support Vector Classifier (SVC) with RDKit descriptors
+- `vc_panelb.py`: Voting Classifier (VC) with RDKit descriptors
 
 ### Panel C
 
@@ -162,5 +163,5 @@ If you want to reproduce a full set of results, a practical order is:
 ## Notes And Caveats
 
 - `bcf_data.csv` is referenced by many scripts, but it is not included in this repository.
-- `rdkit_data.csv` is included under `RDKit Data Exraction`.
+- `rdkit_data_12_missing_features.csv` is included under `RDKit Data Exraction`.
 - The scripts print progress and metrics to the console and store serialized results as pickle files.
