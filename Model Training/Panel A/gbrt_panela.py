@@ -1,79 +1,185 @@
 # Model Training for Panel A: Gradient Boosting Decision Trees (GBDT) with Dragon descriptors
 import pandas as pd
 import numpy as np
-from utility import Kfold
+from sklearn.model_selection import RepeatedStratifiedKFold, StratifiedShuffleSplit
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score, accuracy_score, log_loss
 import os
 import time
 import pickle
-import torch  # For saving model with torch.save
 from matplotlib import pyplot as plt
 
 
-# Get job id and print run details
-job_id = os.environ.get('SLURM_JOB_ID', 'default_job_id')
-print(job_id)
-print("n_estimator = [50, 100, 200, 300, 400, 500, 600, 650, 700, 800, 900, 1000], max_depths = [2, 3, 4, 5, 6, 7, 8], no_ecfp, no_SMOTE")
+# ============================================================
+# GBRT Classification with Correct RepeatedStratifiedKFold
+#
+# Outer split:
+#   RepeatedStratifiedKFold
+#   n_splits = 5
+#   n_repeats = 5
+#   total outer test evaluations = 25
+#
+# Inner validation split:
+#   For each outer training fold, 12.5% of the outer training set
+#   is used as validation using StratifiedShuffleSplit.
+#
+# Approximate full-data proportions per fold:
+#   Training   = 70%
+#   Validation = 10%
+#   Test       = 20%
+#
+# No ECFP, no SMOTE
+# ============================================================
 
-# Measure start time
+
+# ------------------------------------------------------------
+# 1. Run details
+# ------------------------------------------------------------
+
+job_id = os.environ.get("SLURM_JOB_ID", "default_job_id")
+print(job_id)
+
+print(
+    "n_estimator = [50, 100, 200, 300, 400, 500, 600, 650, 700, 800, 900, 1000], "
+    "max_depths = [2, 3, 4, 5, 6, 7, 8], "
+    "no_ecfp, no_SMOTE, correct RepeatedStratifiedKFold"
+)
+
 start_time = time.time()
 print(start_time)
 
-# Load dataset. Refer to RDKit Data Extraction/Generate_RDKit_Features.ipynb for details on how this dataset was fetched.
-file_path = '/home/ssd6515/Fish/bcf_data.csv'
+
+# ------------------------------------------------------------
+# 2. User settings
+# ------------------------------------------------------------
+
+RANDOM_STATE = 42
+
+N_SPLITS = 5
+N_REPEATS = 5
+
+VALIDATION_SIZE = 0.125
+
+N_ESTIMATORS = [50, 100, 200, 300, 400, 500, 600, 650, 700, 800, 900, 1000]
+MAX_DEPTHS = [2, 3, 4, 5, 6, 7, 8]
+
+file_path = "/home/ssd6515/Fish/bcf_data.csv"
+
+
+# ------------------------------------------------------------
+# 3. Load dataset
+# ------------------------------------------------------------
+
 data = pd.read_csv(file_path)
 
-# Extract features
-nHM = data['nHM'].to_numpy().reshape(-1, 1)
-piPC09 = data['piPC09'].to_numpy().reshape(-1, 1)
-PCD = data['PCD'].to_numpy().reshape(-1, 1)
-X2Av = data['X2Av'].to_numpy().reshape(-1, 1)
-MLOGP = data['MLOGP'].to_numpy().reshape(-1, 1)
-ON1V = data['ON1V'].to_numpy().reshape(-1, 1)
-N_072 = data['N-072'].to_numpy().reshape(-1, 1)
-B02_C_N = data['B02[C-N]'].to_numpy().reshape(-1, 1)
-F04_C_O = data['F04[C-O]'].to_numpy().reshape(-1, 1)
-Class = data['Class'].to_numpy()
 
-# Concatenate features
+# ------------------------------------------------------------
+# 4. Extract features and labels
+# ------------------------------------------------------------
+
+nHM = data["nHM"].to_numpy().reshape(-1, 1)
+piPC09 = data["piPC09"].to_numpy().reshape(-1, 1)
+PCD = data["PCD"].to_numpy().reshape(-1, 1)
+X2Av = data["X2Av"].to_numpy().reshape(-1, 1)
+MLOGP = data["MLOGP"].to_numpy().reshape(-1, 1)
+ON1V = data["ON1V"].to_numpy().reshape(-1, 1)
+N_072 = data["N-072"].to_numpy().reshape(-1, 1)
+B02_C_N = data["B02[C-N]"].to_numpy().reshape(-1, 1)
+F04_C_O = data["F04[C-O]"].to_numpy().reshape(-1, 1)
+
+Class = data["Class"].to_numpy()
+
+class_labels = np.unique(Class)
+
 concatenated_data_woFP = np.concatenate(
-    (nHM, piPC09, PCD, X2Av, MLOGP, ON1V, N_072, B02_C_N, F04_C_O), axis=1
+    (
+        nHM,
+        piPC09,
+        PCD,
+        X2Av,
+        MLOGP,
+        ON1V,
+        N_072,
+        B02_C_N,
+        F04_C_O,
+    ),
+    axis=1,
 )
 
-# Create a DataFrame so we have column names for plots and analysis
 feature_names = [
-    'nHM', 'piPC09', 'PCD', 'X2Av',
-    'MLOGP', 'ON1V', 'N-072', 'B02[C-N]', 'F04[C-O]'
+    "nHM",
+    "piPC09",
+    "PCD",
+    "X2Av",
+    "MLOGP",
+    "ON1V",
+    "N-072",
+    "B02[C-N]",
+    "F04[C-O]",
 ]
+
 features = pd.DataFrame(concatenated_data_woFP, columns=feature_names)
 
 print("Shape of concatenated data:", concatenated_data_woFP.shape)
 print("Shape of target labels:", Class.shape)
 print("Feature names:", features.columns.tolist())
-n_sample = len(concatenated_data_woFP)
-total_id = np.arange(n_sample)
+print("Class labels:", class_labels)
 
-# Lists to store metrics and predictions for all 25 models (5 repeats x 5 folds)
-all_fold_metrics = []      # each element is a dict of metrics from one fold
-all_fold_predictions = []  # raw predictions (as arrays) from each fold
+X = concatenated_data_woFP
+y = Class
 
-# List to store the best model from each fold
-all_fold_models = []       # <-- New addition to store best models
 
-# Also store repeat-level metrics (means and stds per repeat) in a list
+# ------------------------------------------------------------
+# 5. Containers for all results
+# ------------------------------------------------------------
+
+all_fold_metrics = []
+all_fold_predictions = []
+all_fold_models = []
+
 repeat_metrics_list = []
-# To store the best model from each repeat (lowest validation loss among the 5 folds)
+
 repeat_best_models = []
 repeat_best_val_losses = []
-repeat_best_hyperparams = []  # To store best_n_estimator and best_max_depth per repeat
+repeat_best_hyperparams = []
 
-# Loop over repeats (for stability, 5 repeats → 25 models total)
-for repeat in range(5):
-    print('repeat:', repeat)
-    np.random.shuffle(total_id)
-    train_split_index, test_split_index = Kfold(len(concatenated_data_woFP), 5)
-    splits = 5
+
+# ------------------------------------------------------------
+# 6. Create all RepeatedStratifiedKFold splits correctly
+# ------------------------------------------------------------
+
+rskf = RepeatedStratifiedKFold(
+    n_splits=N_SPLITS,
+    n_repeats=N_REPEATS,
+    random_state=RANDOM_STATE,
+)
+
+# IMPORTANT:
+# We create the complete list of 25 splits once.
+# This prevents the error of repeatedly restarting the split generator.
+all_outer_splits = list(rskf.split(X, y))
+
+expected_n_splits = N_SPLITS * N_REPEATS
+
+print("Total number of outer splits:", len(all_outer_splits))
+print("Expected number of outer splits:", expected_n_splits)
+
+if len(all_outer_splits) != expected_n_splits:
+    raise ValueError(
+        f"Expected {expected_n_splits} splits, but got {len(all_outer_splits)}."
+    )
+
+
+# ------------------------------------------------------------
+# 7. Repeated stratified cross-validation
+# ------------------------------------------------------------
+
+fold_counter = 0
+
+for repeat in range(N_REPEATS):
+    print("\n============================================================")
+    print("repeat:", repeat)
+    print("============================================================")
 
     # Lists to store metrics per fold in this repeat
     repeat_training_losses = []
@@ -81,359 +187,688 @@ for repeat in range(5):
     repeat_validation_losses = []
     repeat_accuracies = []
     repeat_f1_weighted = []
-    repeat_precision = []       # list of arrays (per fold)
-    repeat_recall = []          # list of arrays (per fold)
-    repeat_f1_not_weighted = [] # list of arrays (per fold)
 
-    # Lists for the averaged metrics (across classes) per fold
+    repeat_precision = []
+    repeat_recall = []
+    repeat_f1_not_weighted = []
+
     repeat_avg_precision_list = []
     repeat_avg_recall_list = []
     repeat_avg_f1_not_weighted_list = []
 
-    # Also store predictions for each fold in the repeat
     repeat_predictions = []
 
-    # Variables to track the best model for this repeat
+    # Track best model within this repeat
     repeat_best_val_loss = np.inf
     repeat_best_model = None
     repeat_best_hyper = None
-    patience = 10000000000  # Set a very high patience value to effectively disable early stopping
-    patience_counter = 0
 
-    for k in range(splits):
-        print('  Batch:', k)
-        # Split indices for train, validation, and test
-        train_index = train_split_index[k][:int(len(train_split_index[k]) * 0.875)]
-        valid_index = train_split_index[k][int(len(train_split_index[k]) * 0.875):]
-        test_index = test_split_index[k]
-        
-        # Map IDs to features/labels
-        train_id = [total_id[i] for i in train_index]
-        valid_id = [total_id[i] for i in valid_index]
-        test_id = [total_id[i] for i in test_index]
-        
-        train_feature = np.array([concatenated_data_woFP[i] for i in train_id])
-        train_label = np.array([Class[i] for i in train_id])
+    for k in range(N_SPLITS):
+        print("\n  Batch:", k)
+
+        split_idx = repeat * N_SPLITS + k
+
+        train_valid_index, test_index = all_outer_splits[split_idx]
+
+        # ----------------------------------------------------
+        # Outer split:
+        # train_valid_index = approximately 80%
+        # test_index        = approximately 20%
+        # Both are stratified.
+        # ----------------------------------------------------
+
+        X_train_valid = X[train_valid_index]
+        y_train_valid = y[train_valid_index]
+
+        X_test = X[test_index]
+        y_test = y[test_index]
+
+        # ----------------------------------------------------
+        # Inner split:
+        # From the outer train_valid set, make train/validation.
+        #
+        # VALIDATION_SIZE = 0.125
+        # 12.5% of 80% = 10% of full dataset
+        # 87.5% of 80% = 70% of full dataset
+        # ----------------------------------------------------
+
+        sss = StratifiedShuffleSplit(
+            n_splits=1,
+            test_size=VALIDATION_SIZE,
+            random_state=RANDOM_STATE + split_idx,
+        )
+
+        inner_train_pos, valid_pos = next(
+            sss.split(X_train_valid, y_train_valid)
+        )
+
+        train_index = train_valid_index[inner_train_pos]
+        valid_index = train_valid_index[valid_pos]
+
+        train_feature = X[train_index]
+        train_label = y[train_index]
+
+        valid_feature = X[valid_index]
+        valid_label = y[valid_index]
+
+        test_feature = X[test_index]
+        test_label = y[test_index]
+
         print("    Training data shape before SMOTE:", train_feature.shape)
         print("    Training labels shape before SMOTE:", train_label.shape)
-        
-        valid_feature = np.array([concatenated_data_woFP[i] for i in valid_id])
-        valid_label = np.array([Class[i] for i in valid_id])
-        test_feature = np.array([concatenated_data_woFP[i] for i in test_id])
-        test_label = np.array([Class[i] for i in test_id])
-        
-        # Hyperparameter grid
-        n_estimator = [50, 100, 200, 300, 400, 500, 600, 650, 700, 800, 900, 1000]
-        max_depths = [2, 3, 4, 5, 6, 7, 8]
-        
+        print("    Validation data shape:", valid_feature.shape)
+        print("    Validation labels shape:", valid_label.shape)
+        print("    Test data shape:", test_feature.shape)
+        print("    Test labels shape:", test_label.shape)
+
+        print(
+            "    Train class counts:",
+            dict(zip(*np.unique(train_label, return_counts=True))),
+        )
+        print(
+            "    Validation class counts:",
+            dict(zip(*np.unique(valid_label, return_counts=True))),
+        )
+        print(
+            "    Test class counts:",
+            dict(zip(*np.unique(test_label, return_counts=True))),
+        )
+
+        # ----------------------------------------------------
+        # Hyperparameter grid search
+        # ----------------------------------------------------
+
         best_valid_loss = np.inf
         best_model = None
         best_pred = None
         best_ne = None
         best_d = None
-        
-        # Loop over hyperparameters
-        for ne in n_estimator:
-            for m_d in max_depths:
+
+        for ne in N_ESTIMATORS:
+            for m_d in MAX_DEPTHS:
                 model = GradientBoostingClassifier(
                     n_estimators=ne,
                     max_depth=m_d,
-                    learning_rate=0.05
+                    learning_rate=0.05,
+                    random_state=RANDOM_STATE + split_idx,
                 )
-                model.fit(train_feature, train_label)
-                training_score = model.score(train_feature, train_label)
 
-                # Compute training log loss
-                train_loss = log_loss(train_label, model.predict_proba(train_feature)) 
-                                
+                model.fit(train_feature, train_label)
+
                 try:
-                    valid_loss = log_loss(valid_label, model.predict_proba(valid_feature))
+                    valid_loss = log_loss(
+                        valid_label,
+                        model.predict_proba(valid_feature),
+                        labels=class_labels,
+                    )
                 except Exception as e:
-                    print("    Error computing log_loss:", e)
+                    print("    Error computing validation log_loss:", e)
                     valid_loss = np.inf
-                
+
                 if valid_loss < best_valid_loss:
                     best_valid_loss = valid_loss
-                    patience_counter = 0
                     best_model = model
                     best_pred = model.predict(test_feature)
-                    test_score = model.score(test_feature, test_label)
                     best_ne = ne
                     best_d = m_d
-                else:
-                    patience_counter += 1
-                
-                if patience_counter >= patience:
-                    print(f"Early stopping at batch {k}")
-                    break
-        
-        # Update repeat-best model if current fold's valid loss is lower
+
+        # ----------------------------------------------------
+        # Update repeat-best model
+        # ----------------------------------------------------
+
         if best_valid_loss < repeat_best_val_loss:
             repeat_best_val_loss = best_valid_loss
             repeat_best_model = best_model
             repeat_best_hyper = (best_ne, best_d)
-        
-        # Compute metrics for the current fold
+
+        # ----------------------------------------------------
+        # Compute fold-level metrics
+        # ----------------------------------------------------
+
         if best_model is not None:
             accuracy = accuracy_score(test_label, best_pred)
-            precision = precision_score(test_label, best_pred, average=None)
-            recall = recall_score(test_label, best_pred, average=None)
-            f1_not_weighted = f1_score(test_label, best_pred, average=None)
-            f1_weighted = f1_score(test_label, best_pred, average='weighted')
+
+            precision = precision_score(
+                test_label,
+                best_pred,
+                labels=class_labels,
+                average=None,
+                zero_division=0,
+            )
+
+            recall = recall_score(
+                test_label,
+                best_pred,
+                labels=class_labels,
+                average=None,
+                zero_division=0,
+            )
+
+            f1_not_weighted = f1_score(
+                test_label,
+                best_pred,
+                labels=class_labels,
+                average=None,
+                zero_division=0,
+            )
+
+            f1_weighted = f1_score(
+                test_label,
+                best_pred,
+                labels=class_labels,
+                average="weighted",
+                zero_division=0,
+            )
+
             training_score = best_model.score(train_feature, train_label)
-            training_loss = log_loss(train_label, best_model.predict_proba(train_feature)) 
 
-            # Compute average metrics over classes for this fold
-            avg_precision = np.mean(precision) if precision is not None else None
-            avg_recall = np.mean(recall) if recall is not None else None
-            avg_f1_not_weighted = np.mean(f1_not_weighted) if f1_not_weighted is not None else None
-            
+            training_loss = log_loss(
+                train_label,
+                best_model.predict_proba(train_feature),
+                labels=class_labels,
+            )
+
+            avg_precision = np.mean(precision)
+            avg_recall = np.mean(recall)
+            avg_f1_not_weighted = np.mean(f1_not_weighted)
+
         else:
-            accuracy = precision = recall = f1_not_weighted = f1_weighted = training_score = training_loss = None
-            avg_precision = avg_recall = avg_f1_not_weighted = None
+            accuracy = None
+            precision = None
+            recall = None
+            f1_not_weighted = None
+            f1_weighted = None
+            training_score = None
+            training_loss = None
+            avg_precision = None
+            avg_recall = None
+            avg_f1_not_weighted = None
 
-        # Append fold-level metrics to repeat lists
+        # ----------------------------------------------------
+        # Store fold-level results
+        # ----------------------------------------------------
+
         repeat_training_losses.append(training_loss)
         repeat_training_scores.append(training_score)
         repeat_validation_losses.append(best_valid_loss)
         repeat_accuracies.append(accuracy)
         repeat_f1_weighted.append(f1_weighted)
+
         repeat_precision.append(precision)
         repeat_recall.append(recall)
         repeat_f1_not_weighted.append(f1_not_weighted)
-        repeat_predictions.append(best_pred)
-        # Append the averaged metrics for this fold
+
         repeat_avg_precision_list.append(avg_precision)
         repeat_avg_recall_list.append(avg_recall)
         repeat_avg_f1_not_weighted_list.append(avg_f1_not_weighted)
 
-        # Also store these fold metrics in our overall list (for 25 models)
+        repeat_predictions.append(best_pred)
+
         fold_metrics = {
-            'training_loss': training_loss,
-            'training_score': training_score,
-            'validation_loss': best_valid_loss,
-            'accuracy': accuracy,
-            'precision': precision,
-            'recall': recall,
-            'f1_weighted': f1_weighted,
-            'f1_not_weighted': f1_not_weighted,
-            'avg_precision': avg_precision,
-            'avg_recall': avg_recall,
-            'avg_f1_not_weighted': avg_f1_not_weighted,
-            'best_n_estimator': best_ne,
-            'best_max_depth': best_d
+            "repeat": repeat,
+            "fold": k,
+            "split_idx": split_idx,
+
+            "training_loss": training_loss,
+            "training_score": training_score,
+            "validation_loss": best_valid_loss,
+            "accuracy": accuracy,
+
+            "precision": precision,
+            "recall": recall,
+            "f1_weighted": f1_weighted,
+            "f1_not_weighted": f1_not_weighted,
+
+            "avg_precision": avg_precision,
+            "avg_recall": avg_recall,
+            "avg_f1_not_weighted": avg_f1_not_weighted,
+
+            "best_n_estimator": best_ne,
+            "best_max_depth": best_d,
+
+            "train_index": train_index,
+            "valid_index": valid_index,
+            "test_index": test_index,
         }
+
         all_fold_metrics.append(fold_metrics)
         all_fold_predictions.append(best_pred)
-        
-        # Append the best model of this fold to the all_fold_models list
         all_fold_models.append(best_model)
 
         print(f"    Fold {k} metrics:")
-        # Print the best hyperparameters for this batch
         print(f"    Best n_estimator: {best_ne}, Best max_depth: {best_d}")
-        print(f"      Training Loss: {training_loss}, Training Score: {training_score}")
+        print(f"      Training Loss: {training_loss}")
+        print(f"      Training Score: {training_score}")
         print(f"      Validation Loss: {best_valid_loss}")
         print(f"      Accuracy: {accuracy}")
-        print(f"      Precision: {precision}")
+        print(f"      Precision per class: {precision}")
         print(f"      Avg Precision: {avg_precision:.4f}")
-        print(f"      Recall: {recall}")
+        print(f"      Recall per class: {recall}")
         print(f"      Avg Recall: {avg_recall:.4f}")
         print(f"      F1 Weighted: {f1_weighted}")
-        print(f"      F1 (Not Weighted): {f1_not_weighted}")
-        print(f"      Avg F1 (Not Weighted): {avg_f1_not_weighted:.4f}")
-    
-    # Save the best model of the current repeat along with its hyperparameters
+        print(f"      F1 per class: {f1_not_weighted}")
+        print(f"      Avg F1: {avg_f1_not_weighted:.4f}")
+
+        fold_counter += 1
+
+    # --------------------------------------------------------
+    # Save repeat-best model and hyperparameters
+    # --------------------------------------------------------
+
     repeat_best_models.append(repeat_best_model)
     repeat_best_val_losses.append(repeat_best_val_loss)
     repeat_best_hyperparams.append(repeat_best_hyper)
-    
-    print(f"repeat {repeat} Best Model Hyperparameters: n_estimator = {repeat_best_hyper[0]}, max_depth = {repeat_best_hyper[1]}")
-    
-    # Compute the repeat-level averaged metrics (over the 5 folds)
-    repeat_avg_precision_mean = np.mean(repeat_avg_precision_list)
-    repeat_avg_precision_std = np.std(repeat_avg_precision_list)
-    repeat_avg_recall_mean = np.mean(repeat_avg_recall_list)
-    repeat_avg_recall_std = np.std(repeat_avg_recall_list)
-    repeat_avg_f1_not_weighted_mean = np.mean(repeat_avg_f1_not_weighted_list)
-    repeat_avg_f1_not_weighted_std = np.std(repeat_avg_f1_not_weighted_list)
 
-    # Convert repeat lists to numpy arrays for computing stats
+    print(
+        f"\nrepeat {repeat} Best Model Hyperparameters: "
+        f"n_estimator = {repeat_best_hyper[0]}, max_depth = {repeat_best_hyper[1]}"
+    )
+
+    # --------------------------------------------------------
+    # Compute repeat-level aggregated metrics
+    # --------------------------------------------------------
+
     repeat_training_losses = np.array(repeat_training_losses)
     repeat_training_scores = np.array(repeat_training_scores)
     repeat_validation_losses = np.array(repeat_validation_losses)
     repeat_accuracies = np.array(repeat_accuracies)
     repeat_f1_weighted = np.array(repeat_f1_weighted)
-    
-    # For precision, recall, and f1 (not weighted) stack the arrays (each is per fold)
-    repeat_precision_arr = np.vstack(repeat_precision) if repeat_precision[0] is not None else None
-    repeat_recall_arr = np.vstack(repeat_recall) if repeat_recall[0] is not None else None
-    repeat_f1_not_weighted_arr = np.vstack(repeat_f1_not_weighted) if repeat_f1_not_weighted[0] is not None else None
-    
-    print(f"repeat {repeat} Aggregated Metrics:")
-    print("  Training Loss - Mean: {:.4f}, Std: {:.4f}".format(repeat_training_losses.mean(), repeat_training_losses.std()))
-    print("  Training Score - Mean: {:.4f}, Std: {:.4f}".format(repeat_training_scores.mean(), repeat_training_scores.std()))
-    print("  Validation Loss - Mean: {:.4f}, Std: {:.4f}".format(repeat_validation_losses.mean(), repeat_validation_losses.std()))
-    print("  Accuracy - Mean: {:.4f}, Std: {:.4f}".format(repeat_accuracies.mean(), repeat_accuracies.std()))
-    print("  F1 Weighted - Mean: {:.4f}, Std: {:.4f}".format(repeat_f1_weighted.mean(), repeat_f1_weighted.std()))
+
+    repeat_precision_arr = (
+        np.vstack(repeat_precision)
+        if repeat_precision[0] is not None
+        else None
+    )
+
+    repeat_recall_arr = (
+        np.vstack(repeat_recall)
+        if repeat_recall[0] is not None
+        else None
+    )
+
+    repeat_f1_not_weighted_arr = (
+        np.vstack(repeat_f1_not_weighted)
+        if repeat_f1_not_weighted[0] is not None
+        else None
+    )
+
+    repeat_avg_precision_mean = np.mean(repeat_avg_precision_list)
+    repeat_avg_precision_std = np.std(repeat_avg_precision_list)
+
+    repeat_avg_recall_mean = np.mean(repeat_avg_recall_list)
+    repeat_avg_recall_std = np.std(repeat_avg_recall_list)
+
+    repeat_avg_f1_not_weighted_mean = np.mean(repeat_avg_f1_not_weighted_list)
+    repeat_avg_f1_not_weighted_std = np.std(repeat_avg_f1_not_weighted_list)
+
+    print(f"\nrepeat {repeat} Aggregated Metrics:")
+    print(
+        "  Training Loss - Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_training_losses.mean(),
+            repeat_training_losses.std(),
+        )
+    )
+    print(
+        "  Training Score - Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_training_scores.mean(),
+            repeat_training_scores.std(),
+        )
+    )
+    print(
+        "  Validation Loss - Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_validation_losses.mean(),
+            repeat_validation_losses.std(),
+        )
+    )
+    print(
+        "  Accuracy - Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_accuracies.mean(),
+            repeat_accuracies.std(),
+        )
+    )
+    print(
+        "  F1 Weighted - Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_f1_weighted.mean(),
+            repeat_f1_weighted.std(),
+        )
+    )
+
     if repeat_precision_arr is not None:
-        print("  Precision - Mean: {}, Std: {}".format(np.mean(repeat_precision_arr, axis=0), np.std(repeat_precision_arr, axis=0)))
-    
-    print("  Avg Precision over folds: Mean: {:.4f}, Std: {:.4f}".format(repeat_avg_precision_mean, repeat_avg_precision_std))
-    
+        print(
+            "  Precision per class - Mean: {}, Std: {}".format(
+                np.mean(repeat_precision_arr, axis=0),
+                np.std(repeat_precision_arr, axis=0),
+            )
+        )
+
+    print(
+        "  Avg Precision over folds: Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_avg_precision_mean,
+            repeat_avg_precision_std,
+        )
+    )
+
     if repeat_recall_arr is not None:
-        print("  Recall - Mean: {}, Std: {}".format(np.mean(repeat_recall_arr, axis=0), np.std(repeat_recall_arr, axis=0)))
-    
-    print("  Avg Recall over folds: Mean: {:.4f}, Std: {:.4f}".format(repeat_avg_recall_mean, repeat_avg_recall_std))
+        print(
+            "  Recall per class - Mean: {}, Std: {}".format(
+                np.mean(repeat_recall_arr, axis=0),
+                np.std(repeat_recall_arr, axis=0),
+            )
+        )
+
+    print(
+        "  Avg Recall over folds: Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_avg_recall_mean,
+            repeat_avg_recall_std,
+        )
+    )
 
     if repeat_f1_not_weighted_arr is not None:
-        print("  F1 (Not Weighted) - Mean: {}, Std: {}".format(np.mean(repeat_f1_not_weighted_arr, axis=0), np.std(repeat_f1_not_weighted_arr, axis=0)))
-    
-    print("  Avg F1 (Not Weighted) over folds: Mean: {:.4f}, Std: {:.4f}".format(repeat_avg_f1_not_weighted_mean, repeat_avg_f1_not_weighted_std))
+        print(
+            "  F1 per class - Mean: {}, Std: {}".format(
+                np.mean(repeat_f1_not_weighted_arr, axis=0),
+                np.std(repeat_f1_not_weighted_arr, axis=0),
+            )
+        )
 
-    # Store aggregated metrics for this repeat
+    print(
+        "  Avg F1 over folds: Mean: {:.4f}, Std: {:.4f}".format(
+            repeat_avg_f1_not_weighted_mean,
+            repeat_avg_f1_not_weighted_std,
+        )
+    )
+
     repeat_metrics = {
-        'training_loss_mean': repeat_training_losses.mean(),
-        'training_loss_std': repeat_training_losses.std(),
-        'training_score_mean': repeat_training_scores.mean(),
-        'training_score_std': repeat_training_scores.std(),
-        'validation_loss_mean': repeat_validation_losses.mean(),
-        'validation_loss_std': repeat_validation_losses.std(),
-        'accuracy_mean': repeat_accuracies.mean(),
-        'accuracy_std': repeat_accuracies.std(),
-        'f1_weighted_mean': repeat_f1_weighted.mean(),
-        'f1_weighted_std': repeat_f1_weighted.std(),
-        'precision_mean': np.mean(repeat_precision_arr, axis=0) if repeat_precision_arr is not None else None,
-        'precision_std': np.std(repeat_precision_arr, axis=0) if repeat_precision_arr is not None else None,
-        'recall_mean': np.mean(repeat_recall_arr, axis=0) if repeat_recall_arr is not None else None,
-        'recall_std': np.std(repeat_recall_arr, axis=0) if repeat_recall_arr is not None else None,
-        'f1_not_weighted_mean': np.mean(repeat_f1_not_weighted_arr, axis=0) if repeat_f1_not_weighted_arr is not None else None,
-        'f1_not_weighted_std': np.std(repeat_f1_not_weighted_arr, axis=0) if repeat_f1_not_weighted_arr is not None else None,
-        'avg_precision_mean': repeat_avg_precision_mean,
-        'avg_precision_std': repeat_avg_precision_std,
-        'avg_recall_mean': repeat_avg_recall_mean,
-        'avg_recall_std': repeat_avg_recall_std,
-        'avg_f1_not_weighted_mean': repeat_avg_f1_not_weighted_mean,
-        'avg_f1_not_weighted_std': repeat_avg_f1_not_weighted_std,
-        'predictions': repeat_predictions  # list of predictions (one per fold)
+        "training_loss_mean": repeat_training_losses.mean(),
+        "training_loss_std": repeat_training_losses.std(),
+
+        "training_score_mean": repeat_training_scores.mean(),
+        "training_score_std": repeat_training_scores.std(),
+
+        "validation_loss_mean": repeat_validation_losses.mean(),
+        "validation_loss_std": repeat_validation_losses.std(),
+
+        "accuracy_mean": repeat_accuracies.mean(),
+        "accuracy_std": repeat_accuracies.std(),
+
+        "f1_weighted_mean": repeat_f1_weighted.mean(),
+        "f1_weighted_std": repeat_f1_weighted.std(),
+
+        "precision_mean": (
+            np.mean(repeat_precision_arr, axis=0)
+            if repeat_precision_arr is not None
+            else None
+        ),
+        "precision_std": (
+            np.std(repeat_precision_arr, axis=0)
+            if repeat_precision_arr is not None
+            else None
+        ),
+
+        "recall_mean": (
+            np.mean(repeat_recall_arr, axis=0)
+            if repeat_recall_arr is not None
+            else None
+        ),
+        "recall_std": (
+            np.std(repeat_recall_arr, axis=0)
+            if repeat_recall_arr is not None
+            else None
+        ),
+
+        "f1_not_weighted_mean": (
+            np.mean(repeat_f1_not_weighted_arr, axis=0)
+            if repeat_f1_not_weighted_arr is not None
+            else None
+        ),
+        "f1_not_weighted_std": (
+            np.std(repeat_f1_not_weighted_arr, axis=0)
+            if repeat_f1_not_weighted_arr is not None
+            else None
+        ),
+
+        "avg_precision_mean": repeat_avg_precision_mean,
+        "avg_precision_std": repeat_avg_precision_std,
+
+        "avg_recall_mean": repeat_avg_recall_mean,
+        "avg_recall_std": repeat_avg_recall_std,
+
+        "avg_f1_not_weighted_mean": repeat_avg_f1_not_weighted_mean,
+        "avg_f1_not_weighted_std": repeat_avg_f1_not_weighted_std,
+
+        "predictions": repeat_predictions,
+        "class_labels": class_labels,
     }
+
     repeat_metrics_list.append(repeat_metrics)
 
-# Save all fold (25 models) metrics and predictions as well as repeat-level metrics
-with open('results_gbrt_panela_repeat_gbrt.pkl', 'wb') as f:
-    pickle.dump({
-        'all_fold_metrics': all_fold_metrics,
-        'all_fold_predictions': all_fold_predictions,
-        'repeat_metrics_list': repeat_metrics_list,
-        'repeat_best_hyperparams': repeat_best_hyperparams  # best hyperparameters per repeat
-    }, f)
 
-# ----------------------------------------
-# Compute final overall metrics across all 25 models
+# ------------------------------------------------------------
+# 8. Save fold metrics, predictions, and repeat-level metrics
+# ------------------------------------------------------------
 
-all_accuracies = np.array([fm['accuracy'] for fm in all_fold_metrics])
-all_f1_weighted = np.array([fm['f1_weighted'] for fm in all_fold_metrics])
-all_avg_precision = np.array([fm['avg_precision'] for fm in all_fold_metrics])
-all_avg_recall = np.array([fm['avg_recall'] for fm in all_fold_metrics])
-all_avg_f1_not_weighted = np.array([fm['avg_f1_not_weighted'] for fm in all_fold_metrics])
+with open("results_gbrt_panela_repeat_gbrt.pkl", "wb") as f:
+    pickle.dump(
+        {
+            "all_fold_metrics": all_fold_metrics,
+            "all_fold_predictions": all_fold_predictions,
+            "repeat_metrics_list": repeat_metrics_list,
+            "repeat_best_hyperparams": repeat_best_hyperparams,
+            "class_labels": class_labels,
+        },
+        f,
+    )
 
-print("25 Fold Accuracy Results:")
+
+# ------------------------------------------------------------
+# 9. Compute final overall metrics across all 25 models
+# ------------------------------------------------------------
+
+all_accuracies = np.array([fm["accuracy"] for fm in all_fold_metrics])
+all_f1_weighted = np.array([fm["f1_weighted"] for fm in all_fold_metrics])
+all_avg_precision = np.array([fm["avg_precision"] for fm in all_fold_metrics])
+all_avg_recall = np.array([fm["avg_recall"] for fm in all_fold_metrics])
+all_avg_f1_not_weighted = np.array(
+    [fm["avg_f1_not_weighted"] for fm in all_fold_metrics]
+)
+
+all_precision_per_class = np.vstack(
+    [fm["precision"] for fm in all_fold_metrics]
+)
+
+all_recall_per_class = np.vstack(
+    [fm["recall"] for fm in all_fold_metrics]
+)
+
+all_f1_per_class = np.vstack(
+    [fm["f1_not_weighted"] for fm in all_fold_metrics]
+)
+
+print("\n25 Fold Accuracy Results:")
 print(all_accuracies)
 
-print("25 Fold F1 Weighted Results:")
+print("\n25 Fold F1 Weighted Results:")
 print(all_f1_weighted)
 
-print("25 Fold Average Precision Results:")
+print("\n25 Fold Average Precision Results:")
 print(all_avg_precision)
 
-print("25 Fold Average Recall Results:")
+print("\n25 Fold Average Recall Results:")
 print(all_avg_recall)
 
-print("25 Fold Average F1 (Not Weighted) Results:")
+print("\n25 Fold Average F1 Results:")
 print(all_avg_f1_not_weighted)
 
-# Compute overall mean and standard deviation
+print("\n25 Fold Per-Class Precision Results:")
+print(all_precision_per_class)
+
+print("\n25 Fold Per-Class Recall Results:")
+print(all_recall_per_class)
+
+print("\n25 Fold Per-Class F1 Results:")
+print(all_f1_per_class)
+
 final_metrics = {
-    'accuracy_mean': np.mean(all_accuracies),
-    'accuracy_std': np.std(all_accuracies),
-    'f1_weighted_mean': np.mean(all_f1_weighted),
-    'f1_weighted_std': np.std(all_f1_weighted),
-    'avg_precision_mean': np.mean(all_avg_precision),
-    'avg_precision_std': np.std(all_avg_precision),
-    'avg_recall_mean': np.mean(all_avg_recall),
-    'avg_recall_std': np.std(all_avg_recall),
-    'avg_f1_not_weighted_mean': np.mean(all_avg_f1_not_weighted),
-    'avg_f1_not_weighted_std': np.std(all_avg_f1_not_weighted)
+    "accuracy_mean": np.mean(all_accuracies),
+    "accuracy_std": np.std(all_accuracies),
+
+    "f1_weighted_mean": np.mean(all_f1_weighted),
+    "f1_weighted_std": np.std(all_f1_weighted),
+
+    "avg_precision_mean": np.mean(all_avg_precision),
+    "avg_precision_std": np.std(all_avg_precision),
+
+    "avg_recall_mean": np.mean(all_avg_recall),
+    "avg_recall_std": np.std(all_avg_recall),
+
+    "avg_f1_not_weighted_mean": np.mean(all_avg_f1_not_weighted),
+    "avg_f1_not_weighted_std": np.std(all_avg_f1_not_weighted),
+
+    "precision_per_class_mean": np.mean(all_precision_per_class, axis=0),
+    "precision_per_class_std": np.std(all_precision_per_class, axis=0),
+
+    "recall_per_class_mean": np.mean(all_recall_per_class, axis=0),
+    "recall_per_class_std": np.std(all_recall_per_class, axis=0),
+
+    "f1_per_class_mean": np.mean(all_f1_per_class, axis=0),
+    "f1_per_class_std": np.std(all_f1_per_class, axis=0),
 }
 
-print('\nFinal Overall Metrics across 25 Models (Mean and Std):')
+print("\nFinal Overall Metrics across 25 Models (Mean and Std):")
 for metric, value in final_metrics.items():
-    print(f'{metric}: {value}')
+    print(f"{metric}: {value}")
+
+print("\nFinal Per-Class Metrics across 25 Models (Mean +/- Std):")
+for class_idx, class_label in enumerate(class_labels):
+    print(f"Class {class_label}:")
+    print(
+        f"  Precision: "
+        f"{final_metrics['precision_per_class_mean'][class_idx]:.4f} +/- "
+        f"{final_metrics['precision_per_class_std'][class_idx]:.4f}"
+    )
+    print(
+        f"  Recall:    "
+        f"{final_metrics['recall_per_class_mean'][class_idx]:.4f} +/- "
+        f"{final_metrics['recall_per_class_std'][class_idx]:.4f}"
+    )
+    print(
+        f"  F1 Score:  "
+        f"{final_metrics['f1_per_class_mean'][class_idx]:.4f} +/- "
+        f"{final_metrics['f1_per_class_std'][class_idx]:.4f}"
+    )
+
+
+# ------------------------------------------------------------
+# 10. Save final metrics
+# ------------------------------------------------------------
 
 all_metrics = {
-    'accuracy_mean': all_accuracies,
-    'f1_weighted_mean': all_f1_weighted,
-    'avg_precision_mean': all_avg_precision,
-    'avg_recall_mean': all_avg_recall,
-    'avg_f1_not_weighted_mean': all_avg_f1_not_weighted,
+    "accuracy_mean": all_accuracies,
+    "f1_weighted_mean": all_f1_weighted,
+    "avg_precision_mean": all_avg_precision,
+    "avg_recall_mean": all_avg_recall,
+    "avg_f1_not_weighted_mean": all_avg_f1_not_weighted,
+
+    "precision_per_class_all_folds": all_precision_per_class,
+    "recall_per_class_all_folds": all_recall_per_class,
+    "f1_per_class_all_folds": all_f1_per_class,
+
+    "accuracy_final_mean": final_metrics["accuracy_mean"],
+    "accuracy_final_std": final_metrics["accuracy_std"],
+
+    "f1_weighted_final_mean": final_metrics["f1_weighted_mean"],
+    "f1_weighted_final_std": final_metrics["f1_weighted_std"],
+
+    "avg_precision_final_mean": final_metrics["avg_precision_mean"],
+    "avg_precision_final_std": final_metrics["avg_precision_std"],
+
+    "avg_recall_final_mean": final_metrics["avg_recall_mean"],
+    "avg_recall_final_std": final_metrics["avg_recall_std"],
+
+    "avg_f1_not_weighted_final_mean": final_metrics["avg_f1_not_weighted_mean"],
+    "avg_f1_not_weighted_final_std": final_metrics["avg_f1_not_weighted_std"],
+
+    "precision_per_class_mean": final_metrics["precision_per_class_mean"],
+    "precision_per_class_std": final_metrics["precision_per_class_std"],
+
+    "recall_per_class_mean": final_metrics["recall_per_class_mean"],
+    "recall_per_class_std": final_metrics["recall_per_class_std"],
+
+    "f1_per_class_mean": final_metrics["f1_per_class_mean"],
+    "f1_per_class_std": final_metrics["f1_per_class_std"],
+
+    "class_labels": class_labels,
 }
 
-with open('results_gbrt_panela_final_metrics_gbrt.pkl', 'wb') as f:
+with open("results_gbrt_panela_final_metrics_gbrt.pkl", "wb") as f:
     pickle.dump(all_metrics, f)
 
-# ----------------------------------------
-# Select the overall best model from the 5 repeat-best models
-# Here we choose the one with the lowest validation loss.
+
+# ------------------------------------------------------------
+# 11. Select the overall best model
+# ------------------------------------------------------------
+
 best_repeat_index = np.argmin(repeat_best_val_losses)
 best_overall_model = repeat_best_models[best_repeat_index]
 best_repeat_hyper = repeat_best_hyperparams[best_repeat_index]
-print(f"Best Overall Model from repeat {best_repeat_index}: n_estimator = {best_repeat_hyper[0]}, max_depth = {best_repeat_hyper[1]}")
-# Save the best overall model as a .pt file using torch.save
-#torch.save(best_overall_model, 'best_gbdt_model.pt')
-#print("Best overall GBDT model saved as best_gbdt_model.pt")
-# ----------------------------------------
-# ----- Additional Code for Feature Importance Plots -----
-# This code will extract the feature importances from each of the 25 models,
-# plot the top 10 important features for each model, and save the importances for later use.
 
-# Create a list to store the raw feature importances for each fold for later use
+print(
+    f"\nBest Overall Model from repeat {best_repeat_index}: "
+    f"n_estimator = {best_repeat_hyper[0]}, max_depth = {best_repeat_hyper[1]}"
+)
+
+# To save the best overall model, uncomment this:
+# with open("best_gbdt_model.pkl", "wb") as f:
+#     pickle.dump(best_overall_model, f)
+# print("Best overall GBDT model saved as best_gbdt_model.pkl")
+
+
+# ------------------------------------------------------------
+# 12. Feature importance plots
+# ------------------------------------------------------------
+
 all_feature_importances = []
+top_n = 10
 
-top_n = 10  # Number of top features to show
-
-# Loop over each fold's model to extract and plot feature importances
 for fold_idx, model in enumerate(all_fold_models):
-    # Extract feature importances from the model
     feature_importances = model.feature_importances_
-    
-    # Save feature importances for later use
     all_feature_importances.append(feature_importances)
-    
-    # Sort the feature importances (get indices for top n features)
+
     sorted_idx = np.argsort(feature_importances)[::-1][:top_n]
     sorted_importances = feature_importances[sorted_idx]
-    # Assuming the feature names are the columns of your 'features' DataFrame
     sorted_features = features.columns[sorted_idx]
-    
-    # Calculate cumulative importance (if needed for future plots)
+
     cumulative_importance = np.cumsum(sorted_importances)
-    
-    # Plotting: Only the top_n important features for the current fold
+
     plt.figure(figsize=(10, 6))
-    plt.barh(range(len(sorted_importances)), sorted_importances, align="center", label="Feature Importance", color="skyblue")
+    plt.barh(
+        range(len(sorted_importances)),
+        sorted_importances,
+        align="center",
+        label="Feature Importance",
+        color="skyblue",
+    )
     plt.yticks(range(len(sorted_importances)), sorted_features)
     plt.xlabel("Feature Importance")
-    plt.title(f"Fold {fold_idx+1}: Top {top_n} Feature Importances")
-    plt.gca().invert_yaxis()  # Most important on top
+    plt.title(f"Fold {fold_idx + 1}: Top {top_n} Feature Importances")
+    plt.gca().invert_yaxis()
     plt.legend(loc="lower right")
-    plt.grid(axis='x', linestyle='--', alpha=0.7)
+    plt.grid(axis="x", linestyle="--", alpha=0.7)
+    plt.tight_layout()
     plt.show()
 
-# Save all the feature importances (from all 25 models) to a file for later use
-with open('all_feature_importances_panela_gbrt.pkl', 'wb') as f:
+with open("all_feature_importances_panela_gbrt.pkl", "wb") as f:
     pickle.dump(all_feature_importances, f)
 
-print("Feature importance plots generated for all 25 models and saved to 'all_feature_importances_panela_gbrt.pkl'.")
+print(
+    "Feature importance plots generated for all 25 models and saved to "
+    "'all_feature_importances_panela_gbrt.pkl'."
+)
+
+
+# ------------------------------------------------------------
+# 13. Execution time
+# ------------------------------------------------------------
 
 end_time = time.time()
 execution_time = (end_time - start_time) / 60
